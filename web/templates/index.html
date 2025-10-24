@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SMARTBITES: QA Real-Time Inspection</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #fff;
+        }
+        nav {
+            margin-bottom: 20px;
+        }
+        nav a {
+            margin-right: 15px;
+            text-decoration: none;
+            color: #4CAF50;
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        #container {
+            display: flex;
+            gap: 30px;
+        }
+        #video-container {
+            position: relative;
+            width: 640px;
+            height: 480px;
+            background: #000;
+        }
+        #video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        #canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+        #overlay {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 3;
+        }
+        #status-indicator {
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 18px;
+            color: #fff;
+            background: #555;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+        }
+        #fps-counter {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            padding: 8px 12px;
+            background: rgba(0,0,0,0.7);
+            border-radius: 5px;
+            font-size: 14px;
+            z-index: 3;
+        }
+        #status-panel {
+            min-width: 350px;
+            background: #2a2a2a;
+            padding: 20px;
+            border-radius: 10px;
+        }
+        #result {
+            margin-top: 20px;
+            white-space: pre-wrap;
+            background: #1a1a1a;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        button {
+            padding: 12px 24px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            margin: 10px 5px 0 0;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        #toggleAutoBtn {
+            background: #2196F3;
+        }
+        #toggleAutoBtn:hover {
+            background: #0b7dda;
+        }
+        .metric {
+            margin: 10px 0;
+            padding: 10px;
+            background: #1a1a1a;
+            border-radius: 5px;
+        }
+        .metric-label {
+            font-weight: bold;
+            color: #4CAF50;
+        }
+    </style>
+</head>
+<body>
+    <nav>
+        <a href="/">Inspection</a> | <a href="/train">Training</a>
+    </nav>
+    
+    <h1>SMARTBITES: QA Real-Time Inspection</h1>
+    
+    <div id="container">
+        <div id="video-container">
+            <video id="video" autoplay playsinline></video>
+            <canvas id="canvas"></canvas>
+            <div id="overlay">
+                <div id="status-indicator">Initializing camera...</div>
+            </div>
+            <div id="fps-counter">FPS: 0</div>
+        </div>
+        
+        <div id="status-panel">
+            <h3>Detection Status</h3>
+            <div class="metric">
+                <div class="metric-label">Objects Detected:</div>
+                <div id="object-count">0</div>
+            </div>
+            <div class="metric">
+                <div class="metric-label">Last Result:</div>
+                <div id="last-result">Waiting...</div>
+            </div>
+            <div class="metric">
+                <div class="metric-label">Confidence:</div>
+                <div id="confidence">-</div>
+            </div>
+            <button id="inspectBtn">Manual Inspect</button>
+            <button id="toggleAutoBtn">Auto: ON</button>
+            <h3 style="margin-top: 20px;">Detailed Results</h3>
+            <div id="result">Waiting for inspection...</div>
+        </div>
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const inspectBtn = document.getElementById('inspectBtn');
+        const toggleAutoBtn = document.getElementById('toggleAutoBtn');
+        const resultDiv = document.getElementById('result');
+        const statusIndicator = document.getElementById('status-indicator');
+        const objectCountDiv = document.getElementById('object-count');
+        const lastResultDiv = document.getElementById('last-result');
+        const confidenceDiv = document.getElementById('confidence');
+        const fpsCounter = document.getElementById('fps-counter');
+        
+        let currentDetections = [];
+        let isInspecting = false;
+        let autoInspectInterval = null;
+        let autoMode = true;
+        let fpsHistory = [];
+        let lastFrameTime = Date.now();
+
+        // Initialize camera
+        async function initCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        width: { ideal: 640 },
+                        height: { ideal: 480 }
+                    } 
+                });
+                video.srcObject = stream;
+                
+                video.addEventListener('loadedmetadata', () => {
+                    // Set canvas to match ACTUAL video dimensions from the stream
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    console.log(`📹 Camera initialized: ${video.videoWidth}x${video.videoHeight}`);
+                    drawDetections();
+                    setStatus('Camera ready', '#4CAF50');
+                    startAutoInspect();
+                });
+            } catch (err) {
+                setStatus('Camera error: ' + err.message, '#f44336');
+                console.error('Camera error:', err);
+            }
+        }
+
+        // Draw detection boxes on canvas
+        function drawDetections() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            currentDetections.forEach(det => {
+                const bbox = det.bbox || det.box;
+                if (!bbox || bbox.length !== 4) return;
+                
+                // Coordinates from backend should already match the image sent
+                // No scaling needed since canvas matches video dimensions
+                const [x1, y1, x2, y2] = bbox;
+                const width = x2 - x1;
+                const height = y2 - y1;
+                
+                // Use 'class' or 'label' from backend response
+                const quality = det.class || det.label || 'unknown';
+                const confidence = det.confidence || det.conf || 0;
+                
+                console.log(`🎨 Drawing box: [${x1},${y1},${x2},${y2}] quality=${quality} conf=${confidence}`);
+                
+                ctx.strokeStyle = quality === 'good' ? '#4ade80' : '#f87171';
+                ctx.lineWidth = 3;
+                ctx.strokeRect(x1, y1, width, height);
+                
+                ctx.fillStyle = quality === 'good' ? '#4ade80' : '#f87171';
+                const label = `${quality.toUpperCase()} (${(confidence * 100).toFixed(1)}%)`;
+                ctx.font = '16px Arial';
+                const textWidth = ctx.measureText(label).width;
+                ctx.fillRect(x1, y1 - 25, textWidth + 10, 25);
+                
+                ctx.fillStyle = 'white';
+                ctx.fillText(label, x1 + 5, y1 - 7);
+            });
+            
+            requestAnimationFrame(drawDetections);
+        }
+
+        // Perform quality inspection
+        async function performInspection() {
+            if (isInspecting || !video.srcObject) return;
+            isInspecting = true;
+            
+            setStatus('Analyzing...', '#888');
+            
+            try {
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = video.videoWidth;
+                tempCanvas.height = video.videoHeight;
+                const tempCtx = tempCanvas.getContext('2d');
+                tempCtx.drawImage(video, 0, 0);
+                
+                const blob = await new Promise(resolve => tempCanvas.toBlob(resolve, 'image/jpeg', 0.95));
+                
+                const formData = new FormData();
+                formData.append('file', blob, 'frame.jpg');  // Changed 'image' to 'file' to match FastAPI endpoint
+                
+                const response = await fetch('http://localhost:8000/inspect', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const result = await response.json();
+                
+                console.log('🔍 Inspection result:', result);
+                console.log('📦 Detections:', result.detections);
+                
+                // Update detections for canvas drawing
+                currentDetections = result.detections || [];
+                
+                // Update UI
+                resultDiv.textContent = JSON.stringify(result, null, 2);
+                objectCountDiv.textContent = currentDetections.length;
+                
+                // Update confidence
+                let maxConfidence = 0;
+                if (currentDetections.length > 0) {
+                    maxConfidence = Math.max(...currentDetections.map(d => d.confidence || d.conf || 0));
+                }
+                confidenceDiv.textContent = `${(maxConfidence * 100).toFixed(1)}%`;
+                
+                console.log(`📊 Max confidence: ${maxConfidence}, Total detections: ${currentDetections.length}`);
+                
+                // Update last result
+                const quality = result.quality || (currentDetections.length > 0 ? (currentDetections[0].class || currentDetections[0].label) : null);
+                if (quality === 'good') {
+                    lastResultDiv.textContent = 'PASS ✓';
+                    lastResultDiv.style.color = '#4CAF50';
+                    setStatus('✓ PASS', '#4CAF50');
+                } else if (quality === 'bad') {
+                    lastResultDiv.textContent = 'FAIL ✗';
+                    lastResultDiv.style.color = '#f44336';
+                    setStatus('✗ FAIL', '#f44336');
+                } else {
+                    lastResultDiv.textContent = 'No detection';
+                    lastResultDiv.style.color = '#FFC107';
+                    setStatus('No objects detected', '#FFC107');
+                }
+                
+                // Update FPS
+                const now = Date.now();
+                const fps = 1000 / (now - lastFrameTime);
+                lastFrameTime = now;
+                fpsHistory.push(fps);
+                if (fpsHistory.length > 10) fpsHistory.shift();
+                const avgFps = fpsHistory.reduce((a, b) => a + b, 0) / fpsHistory.length;
+                fpsCounter.textContent = `FPS: ${Math.round(avgFps)}`;
+                
+            } catch (error) {
+                console.error('Inspection error:', error);
+                setStatus('ERROR: ' + error.message, '#f44336');
+                lastResultDiv.textContent = 'Error';
+                lastResultDiv.style.color = '#f44336';
+                resultDiv.textContent = 'Error: ' + error.message;
+            }
+            
+            isInspecting = false;
+        }
+
+        function setStatus(text, color) {
+            statusIndicator.textContent = text;
+            statusIndicator.style.background = color;
+        }
+
+        function startAutoInspect() {
+            if (autoInspectInterval) return;
+            autoInspectInterval = setInterval(() => {
+                if (!isInspecting) {
+                    performInspection();
+                }
+            }, 2000);
+        }
+
+        function stopAutoInspect() {
+            if (autoInspectInterval) {
+                clearInterval(autoInspectInterval);
+                autoInspectInterval = null;
+            }
+        }
+
+        inspectBtn.onclick = function() {
+            performInspection();
+        };
+
+        toggleAutoBtn.onclick = function() {
+            autoMode = !autoMode;
+            if (autoMode) {
+                startAutoInspect();
+                toggleAutoBtn.textContent = 'Auto: ON';
+                toggleAutoBtn.style.background = '#2196F3';
+            } else {
+                stopAutoInspect();
+                toggleAutoBtn.textContent = 'Auto: OFF';
+                toggleAutoBtn.style.background = '#6c757d';
+            }
+        };
+
+        // Initialize on page load
+        window.addEventListener('load', initCamera);
+    </script>
+</body>
+</html>

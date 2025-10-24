@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card">
+  <h2>Recent Results</h2>
+  <table class="tbl">
+    <thead>
+      <tr>
+        <th>Preview</th>
+        <th>Time</th>
+        <th>Item</th>
+        <th>Lot</th>
+        <th>Pass</th>
+        <th>Confidence</th>
+        <th>Reasons</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for r in rows %}
+      <tr>
+        <td>
+          {% if r.image_url %}
+            <a href="{{ r.image_url }}" target="_blank">
+              <img class="thumb" src="{{ r.image_url }}" alt="img" />
+            </a>
+          {% else %}
+            <div class="noimg">n/a</div>
+          {% endif %}
+        </td>
+        <td>{{ r.capture_ts }}</td>
+        <td>{{ r.item_code or "-" }}</td>
+        <td>{{ r.lot_no or "-" }}</td>
+        <td>
+          {% if r.pass %}
+            <span class="badge pass">PASS</span>
+          {% else %}
+            <span class="badge fail">FAIL</span>
+          {% endif %}
+        </td>
+        <td>{{ "%.3f"|format(r.confidence or 0.0) }}</td>
+        <td>{{ (r.reason_codes or [])|join(", ") }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

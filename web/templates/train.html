@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>QA Training - Fine-tune Model</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        #container { display: flex; gap: 30px; }
+        #video, #canvas { width: 400px; }
+        #canvas { display: none; }
+        #form-panel { min-width: 300px; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input, select { width: 100%; padding: 8px; box-sizing: border-box; }
+        button { padding: 10px 20px; background: #007bff; color: white; border: none; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        #result { margin-top: 20px; padding: 10px; background: #f0f0f0; white-space: pre-wrap; }
+        nav { margin-bottom: 20px; }
+        nav a { margin-right: 15px; text-decoration: none; color: #007bff; }
+    </style>
+</head>
+<body>
+    <nav>
+        <a href="/">← Back to Inspection</a>
+    </nav>
+    <h1>QA Training - Fine-tune Model</h1>
+    <p>Upload images to train the quality inspection model. Capture images from camera or upload files.</p>
+    
+    <div id="container">
+        <div>
+            <h3>Camera Capture</h3>
+            <video id="video" autoplay playsinline></video>
+            <canvas id="canvas"></canvas>
+            <br><br>
+            <button id="captureBtn">Capture Image</button>
+            <p id="captureStatus"></p>
+        </div>
+        
+        <div id="form-panel">
+            <h3>Training Data</h3>
+            <div class="form-group">
+                <label>Label (Classification)</label>
+                <select id="label">
+                    <option value="good">Good</option>
+                    <option value="bad">Bad</option>
+                    <option value="defect">Defect</option>
+                    <option value="contaminated">Contaminated</option>
+                    <option value="discolored">Discolored</option>
+                    <option value="damaged">Damaged</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label>Quality Grade</label>
+                <select id="qualityGrade">
+                    <option value="A">A - Excellent</option>
+                    <option value="B">B - Good</option>
+                    <option value="C">C - Acceptable</option>
+                    <option value="D">D - Poor</option>
+                    <option value="reject">Reject</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label>Item Code (Optional)</label>
+                <input type="text" id="itemCode" placeholder="e.g., ITEM001">
+            </div>
+            
+            <button id="submitBtn">Submit Training Data</button>
+            
+            <div id="result"></div>
+        </div>
+    </div>
+    
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const captureBtn = document.getElementById('captureBtn');
+        const submitBtn = document.getElementById('submitBtn');
+        const captureStatus = document.getElementById('captureStatus');
+        const resultDiv = document.getElementById('result');
+        
+        let capturedImage = null;
+        
+        // Get camera stream
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then(stream => {
+                video.srcObject = stream;
+                video.onloadedmetadata = () => {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                };
+            })
+            .catch(err => {
+                captureStatus.textContent = 'Camera not available';
+            });
+        
+        captureBtn.onclick = function() {
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            capturedImage = canvas.toDataURL('image/jpeg');
+            captureStatus.textContent = '✓ Image captured! Fill the form and submit.';
+            captureStatus.style.color = 'green';
+        };
+        
+        submitBtn.onclick = async function() {
+            if (!capturedImage) {
+                alert('Please capture an image first!');
+                return;
+            }
+            
+            const label = document.getElementById('label').value;
+            const qualityGrade = document.getElementById('qualityGrade').value;
+            const itemCode = document.getElementById('itemCode').value;
+            
+            resultDiv.textContent = 'Submitting training data...';
+            
+            const response = await fetch('/submit_training', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    image: capturedImage,
+                    label: label,
+                    quality_grade: qualityGrade,
+                    item_code: itemCode
+                })
+            });
+            
+            const result = await response.json();
+            resultDiv.textContent = JSON.stringify(result, null, 2);
+            
+            // Reset for next capture
+            capturedImage = null;
+            captureStatus.textContent = 'Ready for next capture';
+            captureStatus.style.color = 'black';
+        };
+    </script>
+</body>
+</html>

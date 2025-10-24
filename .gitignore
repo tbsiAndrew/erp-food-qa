@@ -1,0 +1,68 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+*.pdb
+*.egg
+*.eggs
+*.env
+*.venv
+venv/
+env/
+ENV/
+.venv/
+.env/
+
+# Jupyter Notebooks
+.ipynb_checkpoints
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# Data, models, logs
+*.h5
+*.pt
+*.onnx
+*.csv
+*.log
+*.sqlite3
+*.db
+*.bak
+*.tmp
+*.yaml
+*.yml
+
+# Docker
+*.pid
+docker-compose.override.yml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test, coverage
+htmlcov/
+.coverage
+.tox/
+.nox/
+.pytest_cache/
+
+# Misc
+*.swp
+*.swo
+*.orig
+
+# Ignore dataset and runs outputs
+runs/
+dataset/*/images/
+dataset/*/labels/
+models/
+
+# Ignore web app artifacts
+web/__pycache__/
+web/*.pt
+web/*.onnx
+web/*.log
