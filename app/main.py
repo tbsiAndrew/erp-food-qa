@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import numpy as np
 import cv2, time
+from pathlib import Path
 
 from .detectors.api_detector import APIDetector
 from .detectors.yolo_detector import YOLOQualityDetector
@@ -14,7 +15,10 @@ from .rules import RuleEngine
 from .storage import S3Client
 from .db import DB
 from .config import settings
-from .integrations.sap_b1 import push_result_to_sap_async
+from .models import InspectResponse
+# SAP integration disabled for local non-Docker setup
+# from .integrations.sap_b1 import push_result_to_sap_async
+from .integrations.lark import send_lark_notification_async
 from .dashboard import router as dashboard_router
 
 app = FastAPI(title="ERP Food QA")
@@ -28,7 +32,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Mount static files
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
+# Mount storage directory for serving saved images (create if doesn't exist)
+storage_path = Path("storage")
+storage_path.mkdir(exist_ok=True)
+app.mount("/storage", StaticFiles(directory="storage"), name="storage")
+
 app.include_router(dashboard_router)
 
 # Use YOLO detector instead of API detector for trained model
@@ -43,19 +54,8 @@ _rules = RuleEngine(settings.RULES_PATH)
 _s3 = S3Client()
 _db = DB()
 
-class InspectResponse(BaseModel):
-    pass_: bool
-    grade: str | None
-    confidence: float
-    reason_codes: list[str]
-    metrics: dict
-    inference_ms: float
-    qa_image_id: int
-    qa_result_id: int
-    detections: list[dict] = []  # Add detections to response
-
 @app.post("/inspect", response_model=InspectResponse)
-async def inspect(background: BackgroundTasks, file: UploadFile, lot_no: str | None = Form(None), item_code: str | None = Form(None), line_id: str | None = Form(None), save_image: bool = Form(False)):
+async def inspect(background: BackgroundTasks, file: UploadFile, lot_no: str | None = Form(None), item_code: str | None = Form(None), line_id: str | None = Form(None), save_image: bool = Form(True)):
     raw = await file.read()
     bgr = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
     if bgr is None:
@@ -68,11 +68,24 @@ async def inspect(background: BackgroundTasks, file: UploadFile, lot_no: str | N
     metrics = compute_metrics(bgr)
     decision = _rules.apply(dets=dets, metrics=metrics)
 
-    # Only save image if save_image is True
+    # Create annotated image with detection boxes
+    annotated_image = bgr.copy()
+    annotated_image = _detector.draw_detections(annotated_image, dets)
+    print(f"🎨 Created annotated image with {len(dets)} detections")
+
+    # Save annotated image locally (default behavior for detection)
     if save_image:
-        s3_key = _s3.put_image(bgr, prefix=f"{item_code or 'NA'}/{lot_no or 'NA'}/")
-        s3_uri = _s3.uri_for(s3_key)
+        try:
+            print(f"💾 Saving annotated image to local storage...")
+            s3_key = _s3.put_image(annotated_image, prefix=f"{item_code or 'NA'}/{lot_no or 'NA'}/")
+            s3_uri = _s3.uri_for(s3_key)
+            print(f"✅ Annotated image saved successfully: {s3_uri}")
+        except Exception as e:
+            print(f"❌ Failed to save image: {e}")
+            s3_key = None
+            s3_uri = None
     else:
+        print(f"⏭️  Image saving disabled (save_image=False)")
         s3_key = None
         s3_uri = None
 
@@ -80,18 +93,51 @@ async def inspect(background: BackgroundTasks, file: UploadFile, lot_no: str | N
         qa_image_id = db.insert_qa_image(camera_id=settings.CAMERA_ID, lot_no=lot_no, item_code=item_code, line_id=line_id, s3_uri=s3_uri, width=bgr.shape[1], height=bgr.shape[0], exposure_ms=None, meta={"filename": file.filename, "saved": save_image})
         qa_result_id = db.insert_qa_result(qa_image_id=qa_image_id, model_name=_detector.model_name, model_version=_detector.model_version, inference_ms=inf_ms, passed=decision["pass"], grade=decision.get("grade"), confidence=decision.get("confidence", 0.0), reason_codes=decision.get("reason_codes", []), metrics=metrics)
         
+        # SAP integration disabled for local non-Docker setup
         # Only create ERP event if image was saved
-        if save_image:
-            db.insert_erp_event_pending(qa_result_id, target="SAPB1.ServiceLayer")
+        # if save_image:
+        #     db.insert_erp_event_pending(qa_result_id, target="SAPB1.ServiceLayer")
 
+    # SAP integration disabled for local non-Docker setup
     # Only push to SAP if image was saved
-    if save_image:
-        background.add_task(push_result_to_sap_async, qa_result_id)
+    # if save_image:
+    #     background.add_task(push_result_to_sap_async, qa_result_id)
+    
+    # Send Lark notification if enabled
+    if settings.LARK_ENABLED and settings.LARK_WEBHOOK_URL:
+        lark_data = {
+            "pass_": decision["pass"],
+            "grade": decision.get("grade"),
+            "confidence": decision.get("confidence", 0.0),
+            "good_confidence": decision.get("good_confidence", 0.0),
+            "bad_confidence": decision.get("bad_confidence", 0.0),
+            "reason_codes": decision.get("reason_codes", []),
+            "detections": dets,
+            "item_code": item_code or "N/A",
+            "lot_no": lot_no or "N/A",
+            "qa_result_id": str(qa_result_id),
+            "inference_ms": inf_ms
+        }
+        
+        # Use the already created annotated image for Lark notification
+        background.add_task(
+            send_lark_notification_async, 
+            lark_data, 
+            settings.LARK_WEBHOOK_URL, 
+            annotated_image,  # Pass annotated image with detection boxes
+            settings.LARK_APP_ID,
+            settings.LARK_APP_SECRET,
+            settings.LARK_DRIVE_FOLDER_TOKEN
+        )
 
     return InspectResponse(
         pass_=decision["pass"], 
         grade=decision.get("grade"), 
-        confidence=float(decision.get("confidence", 0.0)), 
+        confidence=float(decision.get("confidence", 0.0)),
+        good_confidence=float(decision.get("good_confidence", 0.0)),
+        bad_confidence=float(decision.get("bad_confidence", 0.0)),
+        good_count=decision.get("good_count", 0),
+        bad_count=decision.get("bad_count", 0),
         reason_codes=list(decision.get("reason_codes", [])), 
         metrics=metrics, 
         inference_ms=inf_ms, 
@@ -101,16 +147,27 @@ async def inspect(background: BackgroundTasks, file: UploadFile, lot_no: str | N
     )
 
 @app.post("/train")
-async def train_model(file: UploadFile, label: str = Form(...), quality_grade: str = Form(...), item_code: str | None = Form(None)):
+async def train_model(
+    file: UploadFile, 
+    label: str = Form(...), 
+    item_code: str | None = Form(None),
+    auto_retrain: bool = Form(False),
+    min_images_before_retrain: int = Form(10)
+):
     """
     Upload training images to fine-tune the quality inspection model.
     
     Args:
         file: Image file for training
         label: Classification label (e.g., 'good', 'bad', 'defect')
-        quality_grade: Quality grade (e.g., 'A', 'B', 'C', 'reject')
         item_code: Optional item/product code
+        auto_retrain: If True, automatically trigger incremental training when enough images accumulated
+        min_images_before_retrain: Minimum new images before triggering auto-retrain (default: 10)
     """
+    import os
+    from pathlib import Path
+    import uuid
+    
     raw = await file.read()
     bgr = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
     if bgr is None:
@@ -119,60 +176,98 @@ async def train_model(file: UploadFile, label: str = Form(...), quality_grade: s
     # Store training image in S3
     s3_key = _s3.put_image(bgr, prefix=f"training/{item_code or 'general'}/{label}/")
     
-    # Save training data to database
+    # Save training data to database (quality_grade now optional/null)
     with _db as db:
         training_id = db.insert_training_data(
             s3_uri=_s3.uri_for(s3_key),
             label=label,
-            quality_grade=quality_grade,
+            quality_grade=None,  # No longer required
             item_code=item_code,
             width=bgr.shape[1],
             height=bgr.shape[0],
             meta={"filename": file.filename}
         )
     
-    # Send training data to external API
+    # Save image locally for YOLO training in dataset/bread_qa_auto_labeled structure
     try:
-        _, buffer = cv2.imencode('.jpg', bgr)
-        import base64
-        img_base64 = base64.b64encode(buffer).decode('utf-8')
+        dataset_base = Path("dataset/bread_qa_auto_labeled")
         
-        payload = {
-            "image": img_base64,
-            "label": label,
-            "quality_grade": quality_grade,
-            "item_code": item_code or "general",
-            "format": "base64"
+        # Map label to 'good' or 'bad' (YOLO class names)
+        yolo_label = "bad" if label.lower() in ["bad", "defect", "contaminated", "discolored", "damaged", "reject"] else "good"
+        class_id = 1 if yolo_label == "bad" else 0
+        
+        # Use 'good' or 'bad' subdirectory in labels and images (staging area)
+        label_dir = dataset_base / "labels" / yolo_label
+        image_dir = dataset_base / "images" / yolo_label
+        
+        # Create directories if they don't exist
+        label_dir.mkdir(parents=True, exist_ok=True)
+        image_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Generate unique filename
+        unique_id = str(uuid.uuid4().hex)
+        image_path = image_dir / f"{unique_id}.jpg"
+        label_path = label_dir / f"{unique_id}.txt"
+        
+        # Save image
+        cv2.imwrite(str(image_path), bgr)
+        
+        # Create YOLO label file (full image bounding box)
+        # Format: class_id center_x center_y width height (normalized 0-1)
+        with open(label_path, 'w') as f:
+            f.write(f"{class_id} 0.5 0.5 1.0 1.0\n")
+        
+        # Check if we should trigger auto-retrain
+        retrain_triggered = False
+        if auto_retrain:
+            # Count pending images in good/bad folders
+            good_images = list((dataset_base / "images" / "good").glob("*.jpg"))
+            bad_images = list((dataset_base / "images" / "bad").glob("*.jpg"))
+            pending_count = len(good_images) + len(bad_images)
+            
+            if pending_count >= min_images_before_retrain:
+                # Trigger incremental training in background
+                import subprocess
+                try:
+                    # Run incremental training script
+                    subprocess.Popen([
+                        "python", "incremental_train.py", 
+                        "--epochs", "10",
+                        "--batch", "8"
+                    ])
+                    retrain_triggered = True
+                except Exception as e:
+                    print(f"⚠️ Failed to trigger auto-retrain: {e}")
+        
+        response_data = {
+            "status": "success",
+            "training_id": training_id,
+            "s3_uri": _s3.uri_for(s3_key),
+            "local_image": str(image_path),
+            "local_label": str(label_path),
+            "yolo_class": yolo_label,
+            "message": "Image saved to local dataset."
         }
         
-        import requests
-        response = requests.post(
-            f"{settings.API_ENDPOINT.rstrip('/')}/train",
-            json=payload,
-            timeout=30,
-            verify=False
-        )
-        
-        if response.status_code == 200:
-            api_result = response.json()
-            return JSONResponse(content={
-                "status": "success",
-                "training_id": training_id,
-                "s3_uri": _s3.uri_for(s3_key),
-                "api_response": api_result
-            })
+        if retrain_triggered:
+            response_data["retrain_triggered"] = True
+            response_data["message"] += " Incremental training started in background."
+        elif auto_retrain:
+            good_images = list((dataset_base / "images" / "good").glob("*.jpg"))
+            bad_images = list((dataset_base / "images" / "bad").glob("*.jpg"))
+            pending_count = len(good_images) + len(bad_images)
+            response_data["pending_images"] = pending_count
+            response_data["message"] += f" {pending_count}/{min_images_before_retrain} images collected. Will auto-train at {min_images_before_retrain}."
         else:
-            return JSONResponse(content={
-                "status": "partial_success",
-                "training_id": training_id,
-                "s3_uri": _s3.uri_for(s3_key),
-                "message": "Stored locally but API training failed"
-            })
+            response_data["message"] += " Run 'python incremental_train.py' to update the model."
+        
+        return JSONResponse(content=response_data)
     
     except Exception as e:
+        # Even if local save fails, we still have S3 backup
         return JSONResponse(content={
             "status": "partial_success",
             "training_id": training_id,
             "s3_uri": _s3.uri_for(s3_key),
-            "message": f"Stored locally but API error: {str(e)}"
+            "message": f"Saved to S3 but local save failed: {str(e)}"
         })

@@ -1,64 +1,75 @@
 from fastapi import APIRouter, Request
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, JSONResponse
-import psycopg2, psycopg2.extras
+import sqlite3
 import re
-import boto3, os
+from pathlib import Path
 from .config import settings
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
 
-s3 = boto3.client(
-    "s3",
-    endpoint_url=getattr(settings, "S3_ENDPOINT", os.getenv("S3_ENDPOINT", "http://localhost:9000")),
-    aws_access_key_id=getattr(settings, "S3_ACCESS_KEY", os.getenv("S3_ACCESS_KEY", "minioadmin")),
-    aws_secret_access_key=getattr(settings, "S3_SECRET_KEY", os.getenv("S3_SECRET_KEY", "minioadmin")),
-    region_name=getattr(settings, "S3_REGION", os.getenv("S3_REGION", "us-east-1")),
-)
-BUCKET = getattr(settings, "S3_BUCKET", os.getenv("S3_BUCKET", "qa-images"))
-
 def _s3_to_key(s3_uri: str | None) -> str | None:
+    """Extract key from S3 URI or file:// URI"""
     if not s3_uri:
         return None
+    
+    # Handle local file:// URIs
+    if s3_uri.startswith("file://"):
+        return s3_uri.replace("file://", "")
+    
+    # Handle S3 URIs (for backwards compatibility)
     m = re.match(r"^s3://([^/]+)/(.+)$", s3_uri)
     if not m:
         return None
     bucket, key = m.group(1), m.group(2)
     return key
 
-def _presign(s3_uri: str | None, expires=3600) -> str | None:
-    key = _s3_to_key(s3_uri)
-    if not key:
+def _get_image_url(s3_uri: str | None) -> str | None:
+    """Convert storage URI to accessible URL"""
+    if not s3_uri:
         return None
-    try:
-        return s3.generate_presigned_url(
-            "get_object",
-            Params={"Bucket": BUCKET, "Key": key},
-            ExpiresIn=expires,
-        )
-    except Exception:
-        return None
+    
+    # For local file storage, convert to relative web path
+    if s3_uri.startswith("file://"):
+        # Extract relative path from full path
+        key = s3_uri.replace("file://", "")
+        # Convert to web-accessible path
+        # Assuming images are served from /storage/images/
+        relative_path = str(Path(key).relative_to(Path(settings.LOCAL_STORAGE_PATH).parent))
+        return f"/{relative_path.replace(chr(92), '/')}"  # Replace backslashes with forward slashes
+    
+    # For S3 URIs (backwards compatibility - would need presigned URL in production)
+    return None
 
 def _fetch_recent(limit=50):
-    conn = psycopg2.connect(settings.DATABASE_URL)
+    """Fetch recent QA results from SQLite database"""
+    db_path = Path(settings.DATABASE_PATH)
+    if not db_path.exists():
+        return []
+    
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
     try:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(
-                '''
-                SELECT qr.id as qa_result_id, qr.pass as pass, qr.grade, qr.confidence, qr.reason_codes,
-                       qr.inference_ms, qr.metrics, qr.model_name, qr.model_version, qr.qa_image_id,
-                       qi.capture_ts, qi.item_code, qi.lot_no, qi.s3_uri, qi.width_px, qi.height_px
-                FROM qa_result qr
-                JOIN qa_image qi ON qi.id = qr.qa_image_id
-                ORDER BY qi.capture_ts DESC
-                LIMIT %s
-                ''', (limit,)
-            )
-            rows = cur.fetchall()
-            for r in rows:
-                r["image_url"] = _presign(r.get("s3_uri"))
-            return rows
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT qr.id as qa_result_id, qr.pass as pass, qr.grade, qr.confidence, qr.reason_codes,
+                   qr.inference_ms, qr.metrics, qr.model_name, qr.model_version, qr.qa_image_id,
+                   qi.capture_ts, qi.item_code, qi.lot_no, qi.s3_uri, qi.width_px, qi.height_px
+            FROM qa_result qr
+            JOIN qa_image qi ON qi.id = qr.qa_image_id
+            ORDER BY qi.capture_ts DESC
+            LIMIT ?
+            ''', (limit,)
+        )
+        rows = cursor.fetchall()
+        results = []
+        for r in rows:
+            row_dict = dict(r)
+            row_dict["image_url"] = _get_image_url(row_dict.get("s3_uri"))
+            results.append(row_dict)
+        return results
     finally:
         conn.close()
 

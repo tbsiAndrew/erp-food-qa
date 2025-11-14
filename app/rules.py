@@ -9,26 +9,77 @@ class RuleEngine:
         self.rules = self.cfg.get("rules", [])
 
     def apply(self, dets: list[dict], metrics: dict):
-        # Default to FAIL if no detections (changed from PASS)
-        decision = {"pass": False if not dets else True, "grade": None, "confidence": 0.0, "reason_codes": []}
+        """
+        Apply rules to detections and calculate aggregate confidence scores
         
-        if dets:
-            decision["confidence"] = max(d.get("conf", 0.0) for d in dets)
-        else:
+        Calculates:
+        - good_confidence: Sum of all 'good' detection confidences
+        - bad_confidence: Sum of all 'bad' detection confidences
+        - Overall pass/fail based on which confidence is higher
+        """
+        # Calculate aggregate confidence by class
+        good_confidence = 0.0
+        bad_confidence = 0.0
+        good_count = 0
+        bad_count = 0
+        
+        for d in dets:
+            label = d.get("label", "").lower()
+            conf = d.get("conf", 0.0) * 100  # Convert to percentage
+            
+            if label == "good":
+                good_confidence += conf
+                good_count += 1
+            elif label == "bad":
+                bad_confidence += conf
+                bad_count += 1
+        
+        # Default decision structure
+        decision = {
+            "pass": False, 
+            "grade": None, 
+            "confidence": 0.0,
+            "good_confidence": good_confidence,
+            "bad_confidence": bad_confidence,
+            "good_count": good_count,
+            "bad_count": bad_count,
+            "reason_codes": []
+        }
+        
+        if not dets:
             # No detections found - mark as FAIL
             decision["reason_codes"].append("NO_DETECTIONS")
+            decision["confidence"] = 0.0
+        else:
+            # Determine pass/fail based on aggregate confidence
+            if good_confidence > bad_confidence:
+                decision["pass"] = True
+                decision["confidence"] = good_confidence
+                decision["grade"] = "A"
+                decision["reason_codes"].append("GOOD_BREAD_DETECTED")
+            elif bad_confidence > good_confidence:
+                decision["pass"] = False
+                decision["confidence"] = bad_confidence
+                decision["grade"] = None
+                decision["reason_codes"].append("BAD_BREAD_DETECTED")
+            else:
+                # Equal confidence - default to fail for safety
+                decision["pass"] = False
+                decision["confidence"] = max(good_confidence, bad_confidence)
+                decision["reason_codes"].append("UNCERTAIN_QUALITY")
             
-        for r in self.rules:
-            if self._match(r.get("when", {}), dets, metrics):
-                act = r.get("action", {})
-                decision["pass"] = bool(act.get("pass", decision["pass"]))
-                if "grade" in act: decision["grade"] = act["grade"]
-                if rc := act.get("reason_codes"): decision["reason_codes"].extend(rc)
+            # Only apply minimum confidence check if total confidence is very low
+            # This prevents false positives when model is uncertain
+            total_confidence = good_confidence + bad_confidence
+            if total_confidence < 10.0:  # Less than 10% total confidence
+                decision["pass"] = False
+                if "LOW_CONFIDENCE" not in decision["reason_codes"]:
+                    decision["reason_codes"].append("LOW_CONFIDENCE")
                 
-        if decision["confidence"] < self.min_conf and dets:
-            decision["pass"] = False
-            decision["reason_codes"].append("LOW_CONFIDENCE")
-            
+        # NOTE: Custom rules from YAML config are DISABLED for aggregate confidence mode
+        # The aggregate good vs bad confidence is the primary decision logic
+        # If you need custom rules, they should be applied before this method
+                
         return decision
 
     def _match(self, cond: dict, dets: list[dict], metrics: dict) -> bool:

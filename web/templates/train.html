@@ -51,19 +51,15 @@
             </div>
             
             <div class="form-group">
-                <label>Quality Grade</label>
-                <select id="qualityGrade">
-                    <option value="A">A - Excellent</option>
-                    <option value="B">B - Good</option>
-                    <option value="C">C - Acceptable</option>
-                    <option value="D">D - Poor</option>
-                    <option value="reject">Reject</option>
-                </select>
+                <label>Item Code (Optional)</label>
+                <input type="text" id="itemCode" placeholder="e.g., ITEM001">
             </div>
             
             <div class="form-group">
-                <label>Item Code (Optional)</label>
-                <input type="text" id="itemCode" placeholder="e.g., ITEM001">
+                <label>
+                    <input type="checkbox" id="autoRetrain" checked>
+                    Auto-retrain model (after 10 images)
+                </label>
             </div>
             
             <button id="submitBtn">Submit Training Data</button>
@@ -110,8 +106,8 @@
             }
             
             const label = document.getElementById('label').value;
-            const qualityGrade = document.getElementById('qualityGrade').value;
             const itemCode = document.getElementById('itemCode').value;
+            const autoRetrain = document.getElementById('autoRetrain').checked;
             
             resultDiv.textContent = 'Submitting training data...';
             
@@ -121,8 +117,8 @@
                 body: JSON.stringify({
                     image: capturedImage,
                     label: label,
-                    quality_grade: qualityGrade,
-                    item_code: itemCode
+                    item_code: itemCode,
+                    auto_retrain: autoRetrain
                 })
             });
             

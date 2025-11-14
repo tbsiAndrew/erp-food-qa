@@ -23,6 +23,15 @@
             text-align: center;
             margin-bottom: 30px;
         }
+        #main-container {
+            display: flex;
+            gap: 30px;
+            align-items: flex-start;
+        }
+        #left-section {
+            display: flex;
+            gap: 30px;
+        }
         #container {
             display: flex;
             gap: 30px;
@@ -77,6 +86,36 @@
             padding: 20px;
             border-radius: 10px;
         }
+        #result-panel {
+            min-width: 400px;
+            max-width: 500px;
+            background: #2a2a2a;
+            padding: 20px;
+            border-radius: 10px;
+        }
+        #result-image-container {
+            width: 100%;
+            height: 300px;
+            background: #000;
+            border-radius: 10px;
+            border: 3px solid #444;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            margin-bottom: 15px;
+        }
+        #result-image {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            display: none;
+        }
+        #result-placeholder {
+            text-align: center;
+            color: #666;
+            font-size: 16px;
+        }
         #result {
             margin-top: 20px;
             white-space: pre-wrap;
@@ -117,6 +156,59 @@
             font-weight: bold;
             color: #4CAF50;
         }
+        
+        /* Responsive Design */
+        @media (max-width: 1400px) {
+            #main-container {
+                flex-direction: column;
+                align-items: center;
+            }
+            #result-panel {
+                width: 100%;
+                max-width: none;
+            }
+        }
+        
+        @media (max-width: 1100px) {
+            #left-section {
+                flex-direction: column;
+                width: 100%;
+            }
+            #video-container {
+                width: 100%;
+                max-width: 640px;
+                height: auto;
+                aspect-ratio: 4/3;
+            }
+            #status-panel {
+                width: 100%;
+                max-width: 640px;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            body {
+                padding: 10px;
+            }
+            h1 {
+                font-size: 24px;
+            }
+            #video-container {
+                height: auto;
+                aspect-ratio: 4/3;
+            }
+            #status-panel, #result-panel {
+                min-width: unset;
+                padding: 15px;
+            }
+            #result-image-container {
+                height: 200px;
+            }
+            button {
+                width: 100%;
+                margin: 5px 0;
+            }
+        }
     </style>
 </head>
 <body>
@@ -126,34 +218,50 @@
     
     <h1>SMARTBITES: QA Real-Time Inspection</h1>
     
-    <div id="container">
-        <div id="video-container">
-            <video id="video" autoplay playsinline></video>
-            <canvas id="canvas"></canvas>
-            <div id="overlay">
-                <div id="status-indicator">Initializing camera...</div>
+    <div id="main-container">
+        <div id="left-section">
+            <div id="video-container">
+                <video id="video" autoplay playsinline></video>
+                <canvas id="canvas"></canvas>
+                <div id="overlay">
+                    <div id="status-indicator">Initializing camera...</div>
+                </div>
+                <div id="fps-counter">FPS: 0</div>
             </div>
-            <div id="fps-counter">FPS: 0</div>
-        </div>
-        
-        <div id="status-panel">
-            <h3>Detection Status</h3>
-            <div class="metric">
+            
+            <div id="status-panel">
+                <h3>Detection Status</h3>
+            <div class="metric-box">
                 <div class="metric-label">Objects Detected:</div>
                 <div id="object-count">0</div>
             </div>
-            <div class="metric">
-                <div class="metric-label">Last Result:</div>
-                <div id="last-result">Waiting...</div>
+            <div class="metric-box">
+                <div class="metric-label">Current Result:</div>
+                <div id="last-result">No detection</div>
             </div>
-            <div class="metric">
-                <div class="metric-label">Confidence:</div>
-                <div id="confidence">-</div>
+            <div class="metric-box">
+                <div class="metric-label">Good Confidence:</div>
+                <div id="good-confidence" style="color: #4CAF50;">0.0%</div>
+            </div>
+            <div class="metric-box">
+                <div class="metric-label">Bad Confidence:</div>
+                <div id="bad-confidence" style="color: #f44336;">0.0%</div>
             </div>
             <button id="inspectBtn">Manual Inspect</button>
             <button id="toggleAutoBtn">Auto: ON</button>
             <h3 style="margin-top: 20px;">Detailed Results</h3>
             <div id="result">Waiting for inspection...</div>
+            <h3 style="margin-top: 20px; color:#FFC107;">Debug: Raw Detections</h3>
+            <pre id="debug-detections" style="background:#222; color:#fff; padding:10px; border-radius:5px; max-height:200px; overflow-y:auto; font-size:11px;"></pre>
+        </div>
+        </div>
+        
+        <div id="result-panel">
+            <h3>RESULT</h3>
+            <div id="result-image-container">
+                <img id="result-image" alt="Detection Result">
+                <div id="result-placeholder">RESULT IMAGE WITH DETECTION BOX RESULT</div>
+            </div>
         </div>
     </div>
 
@@ -167,8 +275,11 @@
         const statusIndicator = document.getElementById('status-indicator');
         const objectCountDiv = document.getElementById('object-count');
         const lastResultDiv = document.getElementById('last-result');
-        const confidenceDiv = document.getElementById('confidence');
+        const goodConfidenceDiv = document.getElementById('good-confidence');
+        const badConfidenceDiv = document.getElementById('bad-confidence');
         const fpsCounter = document.getElementById('fps-counter');
+        const resultImage = document.getElementById('result-image');
+        const resultPlaceholder = document.getElementById('result-placeholder');
         
         let currentDetections = [];
         let isInspecting = false;
@@ -176,6 +287,86 @@
         let autoMode = true;
         let fpsHistory = [];
         let lastFrameTime = Date.now();
+
+        // Capture result image with detection boxes
+        function captureResultImage() {
+            console.log('🎬 captureResultImage called');
+            console.log('🎬 currentDetections:', currentDetections);
+            console.log('🎬 currentDetections length:', currentDetections ? currentDetections.length : 'null/undefined');
+            
+            // Only capture if there are detections
+            if (!currentDetections || currentDetections.length === 0) {
+                console.log('⚠️ No detections to capture - showing placeholder');
+                // Hide result image and show placeholder
+                resultImage.style.display = 'none';
+                resultPlaceholder.style.display = 'block';
+                return;
+            }
+            
+            try {
+                console.log(`📸 Capturing result image with ${currentDetections.length} detections`);
+                console.log('📸 Video dimensions:', video.videoWidth, 'x', video.videoHeight);
+                
+                // Create a temporary canvas to draw the current frame with detection boxes
+                const resultCanvas = document.createElement('canvas');
+                resultCanvas.width = video.videoWidth;
+                resultCanvas.height = video.videoHeight;
+                const resultCtx = resultCanvas.getContext('2d');
+                
+                console.log(`📐 Result canvas size: ${resultCanvas.width}x${resultCanvas.height}`);
+                
+                // Draw the current video frame
+                resultCtx.drawImage(video, 0, 0, resultCanvas.width, resultCanvas.height);
+                console.log('✅ Video frame drawn to result canvas');
+                
+                // Draw detection boxes on the result canvas
+                currentDetections.forEach((det, index) => {
+                    console.log(`🔍 Detection ${index}:`, det);
+                    
+                    const x1 = det.bbox[0];
+                    const y1 = det.bbox[1];
+                    const x2 = det.bbox[2];
+                    const y2 = det.bbox[3];
+                    const width = x2 - x1;
+                    const height = y2 - y1;
+                    const quality = det.class_name;
+                    const confidence = det.confidence || det.conf || 0;
+                    
+                    console.log(`🎨 Drawing box ${index + 1}: [${x1},${y1},${x2},${y2}] w=${width} h=${height} quality=${quality} conf=${confidence}`);
+                    
+                    // Draw bounding box
+                    resultCtx.strokeStyle = quality === 'good' ? '#4ade80' : '#f87171';
+                    resultCtx.lineWidth = 4;
+                    resultCtx.strokeRect(x1, y1, width, height);
+                    
+                    // Draw label background
+                    resultCtx.fillStyle = quality === 'good' ? '#4ade80' : '#f87171';
+                    const label = `${quality.toUpperCase()} (${(confidence * 100).toFixed(1)}%)`;
+                    resultCtx.font = 'bold 18px Arial';
+                    const textWidth = resultCtx.measureText(label).width;
+                    resultCtx.fillRect(x1, y1 - 30, textWidth + 12, 30);
+                    
+                    // Draw label text
+                    resultCtx.fillStyle = 'white';
+                    resultCtx.fillText(label, x1 + 6, y1 - 8);
+                });
+                
+                console.log('✅ All boxes drawn');
+                
+                // Convert to data URL and display
+                const dataUrl = resultCanvas.toDataURL('image/jpeg', 0.95);
+                console.log('✅ Canvas converted to data URL, length:', dataUrl.length);
+                
+                resultImage.src = dataUrl;
+                resultImage.style.display = 'block';
+                resultPlaceholder.style.display = 'none';
+                
+                console.log('✅ Result image displayed successfully');
+            } catch (error) {
+                console.error('❌ Error capturing result image:', error);
+                console.error('❌ Error stack:', error.stack);
+            }
+        }
 
         // Initialize camera
         async function initCamera() {
@@ -200,6 +391,8 @@
             } catch (err) {
                 setStatus('Camera error: ' + err.message, '#f44336');
                 console.error('Camera error:', err);
+                // Show raw detections for debugging
+                document.getElementById('debug-detections').textContent = JSON.stringify(currentDetections, null, 2);
             }
         }
 
@@ -272,37 +465,43 @@
                 
                 console.log('🔍 Inspection result:', result);
                 console.log('📦 Detections:', result.detections);
+                console.log('📦 Detections length:', result.detections ? result.detections.length : 0);
+                console.log('📦 Good count:', result.good_count);
+                console.log('📦 Bad count:', result.bad_count);
                 
                 // Update detections for canvas drawing
                 currentDetections = result.detections || [];
+                
+                console.log('✏️ Updated currentDetections:', currentDetections);
+                console.log('✏️ currentDetections length:', currentDetections.length);
                 
                 // Update UI
                 resultDiv.textContent = JSON.stringify(result, null, 2);
                 objectCountDiv.textContent = currentDetections.length;
                 
-                // Update confidence
-                let maxConfidence = 0;
-                if (currentDetections.length > 0) {
-                    maxConfidence = Math.max(...currentDetections.map(d => d.confidence || d.conf || 0));
-                }
-                confidenceDiv.textContent = `${(maxConfidence * 100).toFixed(1)}%`;
+                // Update good/bad confidence from API response
+                const goodConf = result.good_confidence || 0;
+                const badConf = result.bad_confidence || 0;
+                goodConfidenceDiv.textContent = `${goodConf.toFixed(1)}%`;
+                badConfidenceDiv.textContent = `${badConf.toFixed(1)}%`;
                 
-                console.log(`📊 Max confidence: ${maxConfidence}, Total detections: ${currentDetections.length}`);
+                console.log(`📊 Good: ${goodConf}%, Bad: ${badConf}%, Total detections: ${currentDetections.length}`);
                 
-                // Update last result
-                const quality = result.quality || (currentDetections.length > 0 ? (currentDetections[0].class || currentDetections[0].label) : null);
-                if (quality === 'good') {
+                // Update last result based on pass/fail from API
+                if (result.pass_) {
                     lastResultDiv.textContent = 'PASS ✓';
                     lastResultDiv.style.color = '#4CAF50';
                     setStatus('✓ PASS', '#4CAF50');
-                } else if (quality === 'bad') {
-                    lastResultDiv.textContent = 'FAIL ✗';
-                    lastResultDiv.style.color = '#f44336';
-                    setStatus('✗ FAIL', '#f44336');
                 } else {
-                    lastResultDiv.textContent = 'No detection';
-                    lastResultDiv.style.color = '#FFC107';
-                    setStatus('No objects detected', '#FFC107');
+                    if (currentDetections.length === 0) {
+                        lastResultDiv.textContent = 'No detection';
+                        lastResultDiv.style.color = '#FFC107';
+                        setStatus('No objects detected', '#FFC107');
+                    } else {
+                        lastResultDiv.textContent = 'FAIL ✗';
+                        lastResultDiv.style.color = '#f44336';
+                        setStatus('✗ FAIL', '#f44336');
+                    }
                 }
                 
                 // Update FPS
@@ -313,6 +512,10 @@
                 if (fpsHistory.length > 10) fpsHistory.shift();
                 const avgFps = fpsHistory.reduce((a, b) => a + b, 0) / fpsHistory.length;
                 fpsCounter.textContent = `FPS: ${Math.round(avgFps)}`;
+                
+                // Capture and display result image with detection boxes immediately
+                // The boxes are drawn from currentDetections which we just updated
+                captureResultImage();
                 
             } catch (error) {
                 console.error('Inspection error:', error);

@@ -8,23 +8,24 @@ from ultralytics import YOLO
 import os
 
 class YOLOQualityDetector:
-    def __init__(self, model_path='yolov8n.pt', conf_threshold=0.25):  # Reasonable threshold for production
+    def __init__(self, model_path='yolov8n.pt', conf_threshold=0.25):  # VERY LOW threshold due to poor label quality
         """
         Initialize YOLO detector
         
         Args:
             model_path: Path to YOLO model weights
-            conf_threshold: Confidence threshold for detections (0.25 is a good balance)
+            conf_threshold: Confidence threshold for detections (0.01 needed for poorly trained models)
         """
         # Try to use the LATEST trained bread quality model
         import os
-        
-        # Check for models in order: bread_qa3 (latest) -> bread_qa2 -> bread_qa
-        for model_name in ['bread_qa_auto', 'bread_qa3', 'bread_qa2', 'bread_qa']:
+
+        # Check for models in order: bread_qa11 (latest) -> bread_qa3 -> bread_qa2 -> bread_qa
+        for model_name in ['bread_qa2', 'bread_qa3', 'bread_qa2', 'bread_qa']:
             trained_model_path = os.path.join('runs', 'detect', model_name, 'weights', 'best.pt')
             if os.path.exists(trained_model_path):
                 model_path = trained_model_path
                 print(f"✓ Using trained bread quality model: {model_name}")
+                print(f"⚠️  WARNING: Model has poor label quality - using conf_threshold={conf_threshold}")
                 break
         else:
             # Fall back to pre-trained COCO model for testing
@@ -60,13 +61,17 @@ class YOLOQualityDetector:
         detections = self.detect(bgr)
         
         # Convert to API format: [{cls, label, conf, box}]
+        # Keep bbox and confidence keys for consistency with draw_detections
         api_detections = []
         for det in detections:
             api_detections.append({
                 'cls': det['class_id'],
                 'label': det['class'],
+                'class': det['class'],  # Keep class for draw_detections
                 'conf': det['confidence'],
-                'box': det['bbox']  # [x1, y1, x2, y2]
+                'confidence': det['confidence'],  # Keep confidence for draw_detections
+                'box': det['bbox'],  # [x1, y1, x2, y2]
+                'bbox': det['bbox']  # Keep bbox for draw_detections compatibility
             })
         
         return api_detections
@@ -121,18 +126,22 @@ class YOLOQualityDetector:
         Returns:
             Annotated frame
         """
+        print(f"🎨 draw_detections called with {len(detections)} detections")
+        
         for det in detections:
             x1, y1, x2, y2 = det['bbox']
             confidence = det['confidence']
             class_name = det['class']
             
+            print(f"  Drawing: {class_name} @ ({x1},{y1})-({x2},{y2}) conf={confidence:.2f}")
+            
             # Color coding
             if class_name == 'good':
-                color = (0, 255, 0)  # Green
-            elif class_name in ['defect', 'mold', 'contaminated']:
-                color = (0, 0, 255)  # Red
+                color = (0, 255, 0)  # Green for good bread
+            elif class_name == 'bad':
+                color = (0, 0, 255)  # Red for bad bread
             else:
-                color = (0, 165, 255)  # Orange
+                color = (0, 165, 255)  # Orange for unknown
             
             # Draw bounding box
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 3)

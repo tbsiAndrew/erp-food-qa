@@ -27,15 +27,15 @@ try:
     #     model_path = os.path.join(os.path.dirname(__file__), 'yolov8n.pt')
     #     print("⚠ Trained model not found, using default yolov8n.pt")
 
-    # TEMPORARILY use default YOLOv8 until we have properly labeled training data
-    # The bread_qa models were trained on dummy labels (full-image bounding boxes)
-    # which means they don't actually detect anything
-    model_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'runs', 'detect', 'bread_qa_auto', 'weights', 'best.pt')
-    print("⚠️  WARNING: Using default YOLOv8 model because trained models have invalid labels")
-    print("⚠️  To fix: You need to properly annotate images with bounding boxes using a labeling tool")
-    print("⚠️  Recommended: Use Roboflow, Label Studio, or LabelImg to draw boxes around bread")
+    # Load trained bread quality model
+    model_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'runs', 'detect', 'bread_qa2', 'weights', 'best.pt')
+    print("⚠️  WARNING: Using bread_qa11 trained model with LOW QUALITY labels")
+    print("⚠️  Model performance: mAP50=0.076-0.312 (very poor)")
+    print("⚠️  Root cause: Training labels are full-image bounding boxes, not tight boxes around bread")
+    print("⚠️  To fix: Re-label dataset with proper bounding boxes using Roboflow/LabelImg/Label Studio")
+    print("⚠️  Temporary workaround: Using very low confidence threshold (0.01) for any detections")
     
-    # Load model with LOWER confidence threshold for better detection with limited training data
+    # Load model with VERY LOW confidence threshold due to poor training
     model = YOLO(model_path)
     USE_ULTRALYTICS = True
     print(f"✓ Loaded model: {model_path}")
@@ -89,8 +89,8 @@ def submit_training():
     data = request.json
     img_data = data['image']
     label = data.get('label', 'good')
-    quality_grade = data.get('quality_grade', 'A')
     item_code = data.get('item_code', '')
+    auto_retrain = data.get('auto_retrain', False)
     
     # Decode base64 image
     img_bytes = base64.b64decode(img_data.split(',')[1])
@@ -99,12 +99,12 @@ def submit_training():
     with open('temp_train.jpg', 'wb') as f:
         f.write(img_bytes)
     
-    # Send to FastAPI backend
+    # Send to FastAPI backend (no quality_grade needed)
     files = {'file': open('temp_train.jpg', 'rb')}
     payload = {
         'label': label,
-        'quality_grade': quality_grade,
-        'item_code': item_code
+        'item_code': item_code,
+        'auto_retrain': str(auto_retrain).lower()  # Convert boolean to string for form data
     }
     
     response = requests.post(f'{FASTAPI_URL}/train', files=files, data=payload)
@@ -124,10 +124,11 @@ def gen_frames():
         frame_count += 1
         
         if USE_ULTRALYTICS and model is not None:
-            # Use YOLO for detection with VERY LOW confidence threshold
+            # Use YOLO for detection with VERY LOW confidence threshold (0.01)
+            # This is necessary because the trained model has poor quality labels
             try:
-                # Use conf=0.05 (very low) for better detection with limited training data
-                results = model(frame, conf=0.05, verbose=False)
+                # Use conf=0.01 (very low) because model was trained on poor quality labels
+                results = model(frame, conf=0.01, verbose=False)
                 
                 # Debug: Print detection info every 30 frames
                 if frame_count % 30 == 0:

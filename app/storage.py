@@ -1,30 +1,35 @@
 
-import io, uuid
+import uuid
 import cv2
-import boto3
+from pathlib import Path
 from .config import settings
 
-class S3Client:
+class LocalStorageClient:
+    """Local filesystem storage - replaces MinIO/S3 for running without Docker"""
     def __init__(self):
-        self.s3 = boto3.client(
-            "s3",
-            endpoint_url=settings.S3_ENDPOINT,
-            aws_access_key_id=settings.S3_ACCESS_KEY,
-            aws_secret_access_key=settings.S3_SECRET_KEY,
-            region_name=settings.S3_REGION,
-        )
-        try:
-            self.s3.head_bucket(Bucket=settings.S3_BUCKET)
-        except Exception:
-            self.s3.create_bucket(Bucket=settings.S3_BUCKET)
+        self.storage_dir = Path(settings.LOCAL_STORAGE_PATH)
+        self.storage_dir.mkdir(parents=True, exist_ok=True)
 
     def put_image(self, bgr, prefix: str = "") -> str:
+        """Save image to local filesystem and return relative path as key"""
         key = f"{prefix}{uuid.uuid4().hex}.jpg"
-        ok, buf = cv2.imencode(".jpg", bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+        file_path = self.storage_dir / key
+        
+        # Create subdirectories if prefix contains paths
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        print(f"📁 Saving image to: {file_path}")
+        
+        ok = cv2.imwrite(str(file_path), bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
         if not ok:
-            raise RuntimeError("Failed to encode image")
-        self.s3.put_object(Bucket=settings.S3_BUCKET, Key=key, Body=io.BytesIO(buf.tobytes()).getvalue(), ContentType="image/jpeg")
+            raise RuntimeError(f"Failed to encode image to {file_path}")
+        
+        print(f"✅ Image saved successfully: {file_path} (size: {file_path.stat().st_size} bytes)")
         return key
 
     def uri_for(self, key: str) -> str:
-        return f"s3://{settings.S3_BUCKET}/{key}"
+        """Return local file URI"""
+        full_path = self.storage_dir / key
+        return f"file://{full_path.absolute()}"
+
+# Alias for backwards compatibility
+S3Client = LocalStorageClient

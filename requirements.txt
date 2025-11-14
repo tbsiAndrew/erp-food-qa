@@ -1,5 +1,4 @@
 
-
 fastapi
 uvicorn
 pydantic
@@ -7,8 +6,8 @@ pydantic-settings
 opencv-python
 onnxruntime
 numpy
-psycopg2-binary
-boto3
+# psycopg2-binary  # Not needed for local SQLite setup
+# boto3  # Not needed for local file storage
 pyyaml
 requests
 jinja2
