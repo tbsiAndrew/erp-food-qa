@@ -602,7 +602,9 @@
                 const formData = new FormData();
                 formData.append('file', blob, 'frame.jpg');  // Changed 'image' to 'file' to match FastAPI endpoint
                 
-                const response = await fetch('http://localhost:8000/inspect', {
+                // Use window.location.hostname to automatically use the correct server IP
+                const apiUrl = `http://${window.location.hostname}:8000/inspect`;
+                const response = await fetch(apiUrl, {
                     method: 'POST',
                     body: formData
                 });
