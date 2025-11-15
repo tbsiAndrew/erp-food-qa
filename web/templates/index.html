@@ -377,7 +377,6 @@
                     canvas.width = 640;
                     canvas.height = 480;
                     console.log(`📹 Server camera stream initialized: ${canvas.width}x${canvas.height}`);
-                    drawDetections();
                     setStatus('Camera ready (Server)', '#4CAF50');
                     startAutoInspect();
                 };
@@ -397,9 +396,15 @@
             }
         }
 
-        // Draw detection boxes on canvas
+        // Draw detection boxes on canvas (only when detections exist)
         function drawDetections() {
+            // Clear canvas first
             ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Only draw if we have detections
+            if (!currentDetections || currentDetections.length === 0) {
+                return;
+            }
             
             currentDetections.forEach(det => {
                 const bbox = det.bbox || det.box;
@@ -411,8 +416,8 @@
                 const width = x2 - x1;
                 const height = y2 - y1;
                 
-                // Use 'class' or 'label' from backend response
-                const quality = det.class || det.label || 'unknown';
+                // Use 'class_name' or 'class' or 'label' from backend response
+                const quality = det.class_name || det.class || det.label || 'unknown';
                 const confidence = det.confidence || det.conf || 0;
                 
                 console.log(`🎨 Drawing box: [${x1},${y1},${x2},${y2}] quality=${quality} conf=${confidence}`);
@@ -430,23 +435,21 @@
                 ctx.fillStyle = 'white';
                 ctx.fillText(label, x1 + 5, y1 - 7);
             });
-            
-            requestAnimationFrame(drawDetections);
         }
 
         // Perform quality inspection
         async function performInspection() {
-            if (isInspecting || !video.srcObject) return;
+            if (isInspecting) return;
             isInspecting = true;
             
             setStatus('Analyzing...', '#888');
             
             try {
                 const tempCanvas = document.createElement('canvas');
-                tempCanvas.width = video.videoWidth;
-                tempCanvas.height = video.videoHeight;
+                tempCanvas.width = canvas.width;
+                tempCanvas.height = canvas.height;
                 const tempCtx = tempCanvas.getContext('2d');
-                tempCtx.drawImage(video, 0, 0);
+                tempCtx.drawImage(video, 0, 0, tempCanvas.width, tempCanvas.height);
                 
                 const blob = await new Promise(resolve => tempCanvas.toBlob(resolve, 'image/jpeg', 0.95));
                 
@@ -475,6 +478,9 @@
                 
                 console.log('✏️ Updated currentDetections:', currentDetections);
                 console.log('✏️ currentDetections length:', currentDetections.length);
+                
+                // Clear and redraw detection boxes on canvas
+                drawDetections();
                 
                 // Update UI
                 resultDiv.textContent = JSON.stringify(result, null, 2);

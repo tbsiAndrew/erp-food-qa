@@ -141,50 +141,9 @@ def gen_frames():
         
         frame_count += 1
         
-        if USE_ULTRALYTICS and model is not None:
-            # Use YOLO for detection with VERY LOW confidence threshold (0.01)
-            # This is necessary because the trained model has poor quality labels
-            try:
-                # Use conf=0.01 (very low) because model was trained on poor quality labels
-                results = model(frame, conf=0.01, verbose=False)
-                
-                # Debug: Print detection info every 30 frames
-                if frame_count % 30 == 0:
-                    num_detections = len(results[0].boxes)
-                    print(f"Frame {frame_count}: {num_detections} detections")
-                    if num_detections > 0:
-                        for box in results[0].boxes:
-                            cls = int(box.cls[0])
-                            conf = float(box.conf[0])
-                            class_name = model.names[cls]
-                            print(f"  - {class_name}: {conf:.2f}")
-                
-                annotated = results[0].plot()
-            except Exception as e:
-                print(f"YOLO error: {e}")
-                annotated = frame
-        else:
-            # Fallback: Use OpenCV contour detection with annotations
-            annotated = frame.copy()
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            blur = cv2.GaussianBlur(gray, (5, 5), 0)
-            _, thresh = cv2.threshold(blur, 100, 255, cv2.THRESH_BINARY)
-            contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            
-            # Draw bounding boxes for large contours
-            for cnt in contours:
-                area = cv2.contourArea(cnt)
-                if area > 1000:
-                    x, y, w, h = cv2.boundingRect(cnt)
-                    # Draw bounding box
-                    cv2.rectangle(annotated, (x, y), (x + w, y + h), (0, 255, 0), 3)
-                    # Add label
-                    label = f"object {area/1000:.1f}k"
-                    cv2.rectangle(annotated, (x, y - 30), (x + 150, y), (0, 255, 0), -1)
-                    cv2.putText(annotated, label, (x + 5, y - 10), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
-        
-        ret, buffer = cv2.imencode('.jpg', annotated)
+        # Just stream clean frames without any detection boxes
+        # Detection boxes will be drawn on the client-side canvas overlay when /inspect is called
+        ret, buffer = cv2.imencode('.jpg', frame)
         frame_bytes = buffer.tobytes()
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
