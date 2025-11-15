@@ -108,7 +108,6 @@ def inspect():
     img_data = data['image']
     lot_no = data.get('lot_no', 'LOT123')
     item_code = data.get('item_code', 'ITEM001')
-    save_image = data.get('save_image', False)  # Default: don't save
     
     # Decode base64 image
     img_bytes = base64.b64decode(img_data.split(',')[1])
@@ -121,8 +120,7 @@ def inspect():
     files = {'file': open('temp.jpg', 'rb')}
     payload = {
         'lot_no': lot_no,
-        'item_code': item_code,
-        'save_image': save_image
+        'item_code': item_code
     }
     
     response = requests.post(f'{FASTAPI_URL}/inspect', files=files, data=payload)

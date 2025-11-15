@@ -27,3 +27,4 @@ class InspectResponse(BaseModel):
     qa_image_id: int
     qa_result_id: int
     detections: List[Dict[str, Any]] = []
+    annotated_image: Optional[str] = None  # Base64 encoded annotated image

@@ -55,7 +55,7 @@ _s3 = S3Client()
 _db = DB()
 
 @app.post("/inspect", response_model=InspectResponse)
-async def inspect(background: BackgroundTasks, file: UploadFile, lot_no: str | None = Form(None), item_code: str | None = Form(None), line_id: str | None = Form(None), save_image: bool = Form(True)):
+async def inspect(background: BackgroundTasks, file: UploadFile, lot_no: str | None = Form(None), item_code: str | None = Form(None), line_id: str | None = Form(None)):
     raw = await file.read()
     bgr = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
     if bgr is None:
@@ -73,35 +73,15 @@ async def inspect(background: BackgroundTasks, file: UploadFile, lot_no: str | N
     annotated_image = _detector.draw_detections(annotated_image, dets)
     print(f"🎨 Created annotated image with {len(dets)} detections")
 
-    # Save annotated image locally (default behavior for detection)
-    if save_image:
-        try:
-            print(f"💾 Saving annotated image to local storage...")
-            s3_key = _s3.put_image(annotated_image, prefix=f"{item_code or 'NA'}/{lot_no or 'NA'}/")
-            s3_uri = _s3.uri_for(s3_key)
-            print(f"✅ Annotated image saved successfully: {s3_uri}")
-        except Exception as e:
-            print(f"❌ Failed to save image: {e}")
-            s3_key = None
-            s3_uri = None
-    else:
-        print(f"⏭️  Image saving disabled (save_image=False)")
-        s3_key = None
-        s3_uri = None
+    # Convert annotated image to base64 for frontend display
+    import base64
+    _, buffer = cv2.imencode('.jpg', annotated_image)
+    annotated_image_base64 = base64.b64encode(buffer).decode('utf-8')
+    print(f"📸 Encoded annotated image to base64")
 
     with _db as db:
-        qa_image_id = db.insert_qa_image(camera_id=settings.CAMERA_ID, lot_no=lot_no, item_code=item_code, line_id=line_id, s3_uri=s3_uri, width=bgr.shape[1], height=bgr.shape[0], exposure_ms=None, meta={"filename": file.filename, "saved": save_image})
+        qa_image_id = db.insert_qa_image(camera_id=settings.CAMERA_ID, lot_no=lot_no, item_code=item_code, line_id=line_id, s3_uri=None, width=bgr.shape[1], height=bgr.shape[0], exposure_ms=None, meta={"filename": file.filename})
         qa_result_id = db.insert_qa_result(qa_image_id=qa_image_id, model_name=_detector.model_name, model_version=_detector.model_version, inference_ms=inf_ms, passed=decision["pass"], grade=decision.get("grade"), confidence=decision.get("confidence", 0.0), reason_codes=decision.get("reason_codes", []), metrics=metrics)
-        
-        # SAP integration disabled for local non-Docker setup
-        # Only create ERP event if image was saved
-        # if save_image:
-        #     db.insert_erp_event_pending(qa_result_id, target="SAPB1.ServiceLayer")
-
-    # SAP integration disabled for local non-Docker setup
-    # Only push to SAP if image was saved
-    # if save_image:
-    #     background.add_task(push_result_to_sap_async, qa_result_id)
     
     # Send Lark notification if enabled
     if settings.LARK_ENABLED and settings.LARK_WEBHOOK_URL:
@@ -143,7 +123,8 @@ async def inspect(background: BackgroundTasks, file: UploadFile, lot_no: str | N
         inference_ms=inf_ms, 
         qa_image_id=qa_image_id, 
         qa_result_id=qa_result_id,
-        detections=dets  # Include raw detections
+        detections=dets,  # Include raw detections
+        annotated_image=annotated_image_base64  # Include base64 encoded annotated image
     )
 
 @app.post("/train")

@@ -25,22 +25,31 @@
         }
         #main-container {
             display: flex;
-            gap: 30px;
+            gap: 20px;
             align-items: flex-start;
+            max-width: 1800px;
+            margin: 0 auto;
         }
         #left-section {
             display: flex;
-            gap: 30px;
+            gap: 20px;
+            flex: 1;
+            min-width: 0;
         }
         #container {
             display: flex;
-            gap: 30px;
+            gap: 20px;
         }
         #video-container {
-            position: relative;
-            width: 640px;
-            height: 480px;
-            background: #000;
+              position: relative;
+              width: 540px;
+              height: 405px;
+              max-width: 100%;
+              background: #000;
+              flex-shrink: 0;
+              border-radius: 12px;
+              box-shadow: 0 2px 12px rgba(0,0,0,0.25);
+              overflow: hidden;
         }
         #video {
             width: 100%;
@@ -81,21 +90,27 @@
             z-index: 3;
         }
         #status-panel {
-            min-width: 350px;
+            width: 100%;
+            max-width: 400px;
+            min-width: 280px;
             background: #2a2a2a;
             padding: 20px;
             border-radius: 10px;
+            flex-shrink: 0;
         }
         #result-panel {
-            min-width: 400px;
+            width: 100%;
             max-width: 500px;
+            min-width: 300px;
             background: #2a2a2a;
             padding: 20px;
             border-radius: 10px;
+            flex-shrink: 0;
         }
         #result-image-container {
             width: 100%;
-            height: 300px;
+            aspect-ratio: 4/3;
+            max-height: 400px;
             background: #000;
             border-radius: 10px;
             border: 3px solid #444;
@@ -158,31 +173,47 @@
         }
         
         /* Responsive Design */
+        @media (max-width: 1600px) {
+            #main-container {
+                gap: 15px;
+            }
+            #left-section {
+                gap: 15px;
+            }
+        }
+        
         @media (max-width: 1400px) {
             #main-container {
                 flex-direction: column;
-                align-items: center;
+                align-items: stretch;
             }
             #result-panel {
+                max-width: 100%;
+            }
+            #left-section {
                 width: 100%;
-                max-width: none;
+            }
+            #video-container {
+                width: 100%;
+                max-width: 540px;
+                height: auto;
+                aspect-ratio: 4/3;
             }
         }
         
         @media (max-width: 1100px) {
             #left-section {
                 flex-direction: column;
-                width: 100%;
+                align-items: stretch;
             }
             #video-container {
                 width: 100%;
-                max-width: 640px;
+                max-width: 480px;
                 height: auto;
                 aspect-ratio: 4/3;
             }
             #status-panel {
-                width: 100%;
-                max-width: 640px;
+                max-width: 100%;
             }
         }
         
@@ -191,22 +222,62 @@
                 padding: 10px;
             }
             h1 {
-                font-size: 24px;
+                font-size: 20px;
+                margin-bottom: 15px;
+            }
+            h3 {
+                font-size: 16px;
+            }
+            #status-panel, #result-panel {
+                padding: 15px;
             }
             #video-container {
+                width: 100%;
+                max-width: 100vw;
                 height: auto;
                 aspect-ratio: 4/3;
             }
-            #status-panel, #result-panel {
-                min-width: unset;
-                padding: 15px;
-            }
             #result-image-container {
-                height: 200px;
+                max-height: 300px;
             }
             button {
                 width: 100%;
                 margin: 5px 0;
+                padding: 10px 16px;
+            }
+            .metric {
+                margin: 8px 0;
+                padding: 8px;
+            }
+            #result {
+                max-height: 300px;
+                font-size: 11px;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            body {
+                padding: 5px;
+            }
+            h1 {
+                font-size: 18px;
+            }
+            h3 {
+                font-size: 14px;
+            }
+            #status-panel, #result-panel {
+                padding: 10px;
+            }
+            #result-image-container {
+                max-height: 250px;
+            }
+            #status-indicator {
+                padding: 8px 12px;
+                font-size: 14px;
+            }
+            #fps-counter {
+                padding: 6px 10px;
+                font-size: 12px;
             }
         }
     </style>
@@ -264,7 +335,7 @@
         </div>
         
         <div id="result-panel">
-            <h3>RESULT</h3>
+            <h3>RECENT DETECTION RESULT</h3>
             <div id="result-image-container">
                 <img id="result-image" alt="Detection Result">
                 <div id="result-placeholder">RESULT IMAGE WITH DETECTION BOX RESULT</div>
@@ -595,9 +666,17 @@
                 const avgFps = fpsHistory.reduce((a, b) => a + b, 0) / fpsHistory.length;
                 fpsCounter.textContent = `FPS: ${Math.round(avgFps)}`;
                 
-                // Capture and display result image with detection boxes immediately
-                // The boxes are drawn from currentDetections which we just updated
-                captureResultImage();
+                // Display annotated image from backend if available
+                if (result.annotated_image) {
+                    console.log('📸 Displaying annotated image from backend');
+                    resultImage.src = 'data:image/jpeg;base64,' + result.annotated_image;
+                    resultImage.style.display = 'block';
+                    resultPlaceholder.style.display = 'none';
+                } else if (currentDetections.length === 0) {
+                    console.log('⚠️ No detections - showing placeholder');
+                    resultImage.style.display = 'none';
+                    resultPlaceholder.style.display = 'block';
+                }
                 
             } catch (error) {
                 console.error('Inspection error:', error);
