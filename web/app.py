@@ -29,11 +29,7 @@ try:
 
     # Load trained bread quality model
     model_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'runs', 'detect', 'bread_qa2', 'weights', 'best.pt')
-    print("⚠️  WARNING: Using bread_qa11 trained model with LOW QUALITY labels")
-    print("⚠️  Model performance: mAP50=0.076-0.312 (very poor)")
-    print("⚠️  Root cause: Training labels are full-image bounding boxes, not tight boxes around bread")
-    print("⚠️  To fix: Re-label dataset with proper bounding boxes using Roboflow/LabelImg/Label Studio")
-    print("⚠️  Temporary workaround: Using very low confidence threshold (0.01) for any detections")
+    print("⚠️  ALERT: Using bread_qa2")
     
     # Load model with VERY LOW confidence threshold due to poor training
     model = YOLO(model_path)
