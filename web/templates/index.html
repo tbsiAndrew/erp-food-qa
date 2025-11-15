@@ -371,6 +371,11 @@
         // Initialize camera
         async function initCamera() {
             try {
+                // Check if mediaDevices API is available
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    throw new Error('Camera API not available. Please use HTTPS or a supported browser.');
+                }
+                
                 const stream = await navigator.mediaDevices.getUserMedia({ 
                     video: { 
                         width: { ideal: 640 },

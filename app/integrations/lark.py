@@ -47,28 +47,23 @@ class LarkNotifier:
             # Upload image to Lark Drive to get a file_token compatible with Bitable attachments
             if image is not None:
                 try:
-                    # If you have a function to draw detections, use it here:
-                    # annotated_image = draw_detections(image, detections)
-                    # For now, assume 'image' is already annotated
+                    # Image is already annotated with detection boxes from main.py
                     _, buffer = cv2.imencode('.jpg', image)
                     image_bytes = buffer.tobytes()
-                    # --- Save image locally ---
-                    save_dir = os.path.join('capture', 'image')
-                    os.makedirs(save_dir, exist_ok=True)
-                    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                    filename = f"capture_{timestamp}.jpg"
-                    save_path = os.path.join(save_dir, filename)
-                    cv2.imwrite(save_path, image)  # 'image' should be the annotated image
-                    print(f"✅ Image saved locally to {save_path}")
-
-                    # Try IM Images API first (simpler and works)
-                    file_token = self._upload_image_to_lark_drive(image_bytes)
                     
+                    # # --- Save image locally ---
+                    # save_dir = os.path.join('capture', 'image')
+                    # os.makedirs(save_dir, exist_ok=True)
+                    # timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                    # filename = f"capture_{timestamp}.jpg"
+                    # save_path = os.path.join(save_dir, filename)
+                    # cv2.imwrite(save_path, image)
+                    # print(f"✅ Image saved locally to {save_path}")
+
                     print(f"🔍 Processing image: {len(image_bytes)} bytes")
                     
-                    # Try IM Images API first (simpler and works)
+                    # Upload to Lark Drive
                     file_token = self._upload_image_to_lark_drive(image_bytes)
-                    
                     print(f"🔍 Received file_token from Drive upload: {file_token}")
                     
                     if file_token:

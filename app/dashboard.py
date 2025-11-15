@@ -32,18 +32,21 @@ def _get_image_url(s3_uri: str | None) -> str | None:
     
     # For local file storage, convert to relative web path
     if s3_uri.startswith("file://"):
-        # Extract relative path from full path
         key = s3_uri.replace("file://", "")
-        # Convert to web-accessible path
-        # Assuming images are served from /storage/images/
-        relative_path = str(Path(key).relative_to(Path(settings.LOCAL_STORAGE_PATH).parent))
-        return f"/{relative_path.replace(chr(92), '/')}"  # Replace backslashes with forward slashes
+        parts = Path(key).parts
+        try:
+            idx = parts.index("storage")
+            relative_path = Path(*parts[idx:])  # storage/images/...
+            return f"/{relative_path.as_posix()}"
+        except ValueError:
+            # fallback: just use filename
+            return f"/storage/images/{Path(key).name}"
     
     # For S3 URIs (backwards compatibility - would need presigned URL in production)
     return None
 
-def _fetch_recent(limit=50):
-    """Fetch recent QA results from SQLite database"""
+def _fetch_recent(limit=50, offset=0):
+    """Fetch recent QA results from SQLite database with pagination"""
     db_path = Path(settings.DATABASE_PATH)
     if not db_path.exists():
         return []
@@ -60,8 +63,8 @@ def _fetch_recent(limit=50):
             FROM qa_result qr
             JOIN qa_image qi ON qi.id = qr.qa_image_id
             ORDER BY qi.capture_ts DESC
-            LIMIT ?
-            ''', (limit,)
+            LIMIT ? OFFSET ?
+            ''', (limit, offset)
         )
         rows = cursor.fetchall()
         results = []
@@ -75,12 +78,14 @@ def _fetch_recent(limit=50):
 
 @router.get("/", response_class=HTMLResponse)
 def index(request: Request):
-    rows = _fetch_recent(25)
-    return templates.TemplateResponse("index.html", {"request": request, "rows": rows})
+    offset = int(request.query_params.get("offset", 0))
+    limit = int(request.query_params.get("limit", 25))
+    rows = _fetch_recent(limit, offset)
+    return templates.TemplateResponse("index.html", {"request": request, "rows": rows, "offset": offset, "limit": limit})
 
 @router.get("/api/results")
-def api_results(limit: int = 50):
-    return JSONResponse(_fetch_recent(limit))
+def api_results(limit: int = 50, offset: int = 0):
+    return JSONResponse(_fetch_recent(limit, offset))
 
 @router.get("/health")
 def health():

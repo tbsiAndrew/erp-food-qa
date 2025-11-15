@@ -79,17 +79,22 @@
         let capturedImage = null;
         
         // Get camera stream
-        navigator.mediaDevices.getUserMedia({ video: true })
-            .then(stream => {
-                video.srcObject = stream;
-                video.onloadedmetadata = () => {
-                    canvas.width = video.videoWidth;
-                    canvas.height = video.videoHeight;
-                };
-            })
-            .catch(err => {
-                captureStatus.textContent = 'Camera not available';
-            });
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            navigator.mediaDevices.getUserMedia({ video: true })
+                .then(stream => {
+                    video.srcObject = stream;
+                    video.onloadedmetadata = () => {
+                        canvas.width = video.videoWidth;
+                        canvas.height = video.videoHeight;
+                    };
+                })
+                .catch(err => {
+                    captureStatus.textContent = 'Camera error: ' + err.message;
+                    console.error('Camera error:', err);
+                });
+        } else {
+            captureStatus.textContent = 'Camera API not available. Please use HTTPS or a supported browser.';
+        }
         
         captureBtn.onclick = function() {
             const ctx = canvas.getContext('2d');

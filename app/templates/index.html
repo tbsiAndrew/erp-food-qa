@@ -42,5 +42,19 @@
     {% endfor %}
     </tbody>
   </table>
+  <div class="pagination">
+    {% set prev_offset = (offset|default(0, true) - limit|default(25, true)) %}
+    {% set next_offset = (offset|default(0, true) + limit|default(25, true)) %}
+    <form method="get" style="display:inline">
+      <input type="hidden" name="offset" value="{{ prev_offset if prev_offset > 0 else 0 }}">
+      <input type="hidden" name="limit" value="{{ limit|default(25, true) }}">
+      <button type="submit" {% if offset|default(0, true) <= 0 %}disabled{% endif %}>Prev</button>
+    </form>
+    <form method="get" style="display:inline">
+      <input type="hidden" name="offset" value="{{ next_offset }}">
+      <input type="hidden" name="limit" value="{{ limit|default(25, true) }}">
+      <button type="submit">Next</button>
+    </form>
+  </div>
 </section>
 {% endblock %}
