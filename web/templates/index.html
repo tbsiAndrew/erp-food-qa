@@ -221,7 +221,7 @@
     <div id="main-container">
         <div id="left-section">
             <div id="video-container">
-                <video id="video" autoplay playsinline></video>
+                <img id="video" src="{{ url_for('video_feed') }}" />
                 <canvas id="canvas"></canvas>
                 <div id="overlay">
                     <div id="status-indicator">Initializing camera...</div>
@@ -368,36 +368,32 @@
             }
         }
 
-        // Initialize camera
+        // Initialize camera (now using server video stream)
         async function initCamera() {
             try {
-                // Check if mediaDevices API is available
-                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                    throw new Error('Camera API not available. Please use HTTPS or a supported browser.');
-                }
-                
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { 
-                        width: { ideal: 640 },
-                        height: { ideal: 480 }
-                    } 
-                });
-                video.srcObject = stream;
-                
-                video.addEventListener('loadedmetadata', () => {
-                    // Set canvas to match ACTUAL video dimensions from the stream
-                    canvas.width = video.videoWidth;
-                    canvas.height = video.videoHeight;
-                    console.log(`📹 Camera initialized: ${video.videoWidth}x${video.videoHeight}`);
+                // Use server's video stream (DroidCam on server)
+                video.onload = () => {
+                    // Set canvas to match video dimensions
+                    canvas.width = 640;
+                    canvas.height = 480;
+                    console.log(`📹 Server camera stream initialized: ${canvas.width}x${canvas.height}`);
                     drawDetections();
-                    setStatus('Camera ready', '#4CAF50');
+                    setStatus('Camera ready (Server)', '#4CAF50');
                     startAutoInspect();
-                });
+                };
+                
+                video.onerror = () => {
+                    setStatus('Camera error: Cannot connect to server camera', '#f44336');
+                    console.error('Server camera stream error');
+                };
+                
+                // Trigger load event check
+                if (video.complete) {
+                    video.onload();
+                }
             } catch (err) {
                 setStatus('Camera error: ' + err.message, '#f44336');
                 console.error('Camera error:', err);
-                // Show raw detections for debugging
-                document.getElementById('debug-detections').textContent = JSON.stringify(currentDetections, null, 2);
             }
         }
 

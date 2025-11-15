@@ -114,12 +114,30 @@ def submit_training():
 
 # MJPEG streaming endpoint for annotated frames
 def gen_frames():
-    cap = cv2.VideoCapture(0)
+    # Auto-detect camera device (DroidCam might be at index 1, 2, etc.)
+    cap = None
+    for cam_index in range(5):  # Try indices 0-4
+        test_cap = cv2.VideoCapture(cam_index)
+        if test_cap.isOpened():
+            ret, test_frame = test_cap.read()
+            if ret and test_frame is not None:
+                cap = test_cap
+                print(f"✓ Camera found at index {cam_index}")
+                break
+            test_cap.release()
+    
+    if cap is None:
+        print("❌ No camera found")
+        return
+    
     frame_count = 0
     while True:
         success, frame = cap.read()
         if not success:
-            break
+            print("⚠ Failed to read frame, trying to reconnect...")
+            cap.release()
+            cap = cv2.VideoCapture(0)  # Try to reconnect
+            continue
         
         frame_count += 1
         
