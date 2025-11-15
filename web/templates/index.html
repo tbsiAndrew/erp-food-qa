@@ -230,7 +230,14 @@
             </div>
             
             <div id="status-panel">
-                <h3>Detection Status</h3>
+                <h3>Camera Settings</h3>
+                <div class="metric-box">
+                    <div class="metric-label">Select Camera:</div>
+                    <select id="camera-select" style="width: 100%; padding: 8px; margin-top: 5px; background: #1a1a1a; color: #fff; border: 1px solid #4CAF50; border-radius: 5px; font-size: 14px;">
+                        <option value="">Loading cameras...</option>
+                    </select>
+                </div>
+                <h3 style="margin-top: 20px;">Detection Status</h3>
             <div class="metric-box">
                 <div class="metric-label">Objects Detected:</div>
                 <div id="object-count">0</div>
@@ -280,13 +287,80 @@
         const fpsCounter = document.getElementById('fps-counter');
         const resultImage = document.getElementById('result-image');
         const resultPlaceholder = document.getElementById('result-placeholder');
+        const cameraSelect = document.getElementById('camera-select');
         
         let currentDetections = [];
         let isInspecting = false;
         let autoInspectInterval = null;
-        let autoMode = true;
+        let autoMode = false; // Auto detection OFF by default
         let fpsHistory = [];
         let lastFrameTime = Date.now();
+
+        // Load available cameras
+        async function loadCameras() {
+            try {
+                const response = await fetch('/api/cameras');
+                const data = await response.json();
+                
+                cameraSelect.innerHTML = '';
+                
+                if (data.cameras.length === 0) {
+                    cameraSelect.innerHTML = '<option value="">No cameras found</option>';
+                    return;
+                }
+                
+                data.cameras.forEach(camera => {
+                    const option = document.createElement('option');
+                    option.value = camera.index;
+                    option.textContent = camera.name;
+                    cameraSelect.appendChild(option);
+                });
+                
+                console.log(`📹 Found ${data.cameras.length} cameras`);
+            } catch (error) {
+                console.error('Error loading cameras:', error);
+                cameraSelect.innerHTML = '<option value="">Error loading cameras</option>';
+            }
+        }
+
+        // Handle camera selection change
+        cameraSelect.addEventListener('change', async function() {
+            const cameraIndex = this.value;
+            if (!cameraIndex) return;
+            try {
+                setStatus('Switching camera...', '#FFA500');
+                const response = await fetch('/api/set_camera', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ camera_index: parseInt(cameraIndex) })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    console.log(`✓ Camera switched to index ${cameraIndex}`);
+                    // Always turn off auto-detection when switching camera
+                    autoMode = false;
+                    stopAutoInspect();
+                    toggleAutoBtn.textContent = 'Auto: OFF';
+                    toggleAutoBtn.style.background = '#6c757d';
+                    console.log('🔴 Auto-detection forcibly turned OFF due to camera change');
+                    // Clear current detections
+                    currentDetections = [];
+                    drawDetections();
+                    // Reload the video stream by changing the src
+                    const timestamp = new Date().getTime();
+                    video.src = `{{ url_for('video_feed') }}?t=${timestamp}`;
+                    setStatus('Camera switched - Auto OFF', '#4CAF50');
+                } else {
+                    setStatus('Error switching camera', '#f44336');
+                    console.error('Failed to switch camera:', data.error);
+                }
+            } catch (error) {
+                console.error('Error switching camera:', error);
+                setStatus('Error switching camera', '#f44336');
+            }
+        });
 
         // Capture result image with detection boxes
         function captureResultImage() {
@@ -378,7 +452,8 @@
                     canvas.height = 480;
                     console.log(`📹 Server camera stream initialized: ${canvas.width}x${canvas.height}`);
                     setStatus('Camera ready (Server)', '#4CAF50');
-                    startAutoInspect();
+                    // Do NOT start auto inspect after camera change
+                    // Only start if user manually enables it
                 };
                 
                 video.onerror = () => {
@@ -574,7 +649,13 @@
         };
 
         // Initialize on page load
-        window.addEventListener('load', initCamera);
+        window.addEventListener('load', () => {
+            loadCameras();  // Load available cameras first
+            initCamera();   // Then initialize camera stream
+            // Ensure auto-detection is off and button reflects this
+            toggleAutoBtn.textContent = 'Auto: OFF';
+            toggleAutoBtn.style.background = '#6c757d';
+        });
     </script>
 </body>
 </html>

@@ -8,6 +8,10 @@ app = Flask(__name__)
 
 FASTAPI_URL = "http://127.0.0.1:8000"
 
+# Global variables for camera management
+active_camera_index = None
+camera_capture = None
+
 # Try to load YOLO model, fallback to OpenCV DNN if ultralytics fails
 try:
     from ultralytics import YOLO
@@ -50,6 +54,52 @@ def index():
 @app.route('/train')
 def train_page():
     return render_template('train.html')
+
+@app.route('/api/cameras', methods=['GET'])
+def get_cameras():
+    """Get list of available cameras with their names"""
+    cameras = []
+    for i in range(10):  # Check indices 0-9
+        cap = cv2.VideoCapture(i)
+        if cap.isOpened():
+            ret, frame = cap.read()
+            if ret and frame is not None:
+                # Try to get camera name (platform-specific)
+                camera_name = f"Camera {i}"
+                try:
+                    # On Windows, try to get device name
+                    backend = cap.getBackendName()
+                    camera_name = f"Camera {i} ({backend})"
+                except:
+                    pass
+                cameras.append({
+                    'index': i,
+                    'name': camera_name
+                })
+            cap.release()
+    return jsonify({'cameras': cameras})
+
+@app.route('/api/set_camera', methods=['POST'])
+def set_camera():
+    """Set the active camera index"""
+    global active_camera_index, camera_capture
+    data = request.json
+    camera_index = data.get('camera_index')
+    
+    if camera_index is None:
+        return jsonify({'success': False, 'error': 'camera_index is required'}), 400
+    
+    try:
+        camera_index = int(camera_index)
+        # Release old camera if exists
+        if camera_capture is not None:
+            camera_capture.release()
+            camera_capture = None
+        
+        active_camera_index = camera_index
+        return jsonify({'success': True, 'camera_index': camera_index})
+    except ValueError:
+        return jsonify({'success': False, 'error': 'Invalid camera_index'}), 400
 
 @app.route('/inspect', methods=['POST'])
 def inspect():
@@ -110,17 +160,60 @@ def submit_training():
 
 # MJPEG streaming endpoint for annotated frames
 def gen_frames():
-    # Auto-detect camera device (DroidCam might be at index 1, 2, etc.)
+    global active_camera_index, camera_capture
+    
+    # Try to get camera index from environment variable, default to auto-detect
+    import os
+    preferred_camera = os.environ.get('CAMERA_INDEX', None)
+    
     cap = None
-    for cam_index in range(5):  # Try indices 0-4
-        test_cap = cv2.VideoCapture(cam_index)
+    
+    # First, check if user selected a camera via web UI
+    if active_camera_index is not None:
+        test_cap = cv2.VideoCapture(active_camera_index)
         if test_cap.isOpened():
             ret, test_frame = test_cap.read()
             if ret and test_frame is not None:
                 cap = test_cap
-                print(f"✓ Camera found at index {cam_index}")
-                break
+                camera_capture = cap
+                print(f"✓ Using selected camera at index {active_camera_index}")
+            else:
+                test_cap.release()
+        else:
             test_cap.release()
+    
+    # If specific camera index is set via env variable, try it
+    if cap is None and preferred_camera is not None:
+        try:
+            cam_index = int(preferred_camera)
+            test_cap = cv2.VideoCapture(cam_index)
+            if test_cap.isOpened():
+                ret, test_frame = test_cap.read()
+                if ret and test_frame is not None:
+                    cap = test_cap
+                    camera_capture = cap
+                    print(f"✓ Using preferred camera at index {cam_index}")
+                else:
+                    test_cap.release()
+            else:
+                test_cap.release()
+        except ValueError:
+            print(f"⚠ Invalid CAMERA_INDEX value: {preferred_camera}")
+    
+    # Auto-detect only if no camera has ever been selected (active_camera_index is None and no env var)
+    if cap is None and active_camera_index is None and preferred_camera is None:
+        print("🔍 Auto-detecting camera...")
+        for cam_index in range(10):  # Try indices 0-9 (increased range for more devices)
+            test_cap = cv2.VideoCapture(cam_index)
+            if test_cap.isOpened():
+                ret, test_frame = test_cap.read()
+                if ret and test_frame is not None:
+                    cap = test_cap
+                    camera_capture = cap
+                    active_camera_index = cam_index
+                    print(f"✓ Camera found at index {cam_index}")
+                    break
+                test_cap.release()
     
     if cap is None:
         print("❌ No camera found")
