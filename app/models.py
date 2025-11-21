@@ -15,6 +15,9 @@ class Decision(BaseModel):
 
 class InspectResponse(BaseModel):
     pass_: bool
+    camera_name: Optional[str] = None  # Camera name used for capture
+    date: Optional[str] = None  # Date of inspection
+    time: Optional[str] = None  # Time of inspection
     grade: Optional[str] = None
     confidence: float = 0.0
     good_confidence: float = 0.0
@@ -28,3 +31,4 @@ class InspectResponse(BaseModel):
     qa_result_id: int
     detections: List[Dict[str, Any]] = []
     annotated_image: Optional[str] = None  # Base64 encoded annotated image
+    

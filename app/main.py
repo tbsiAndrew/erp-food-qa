@@ -21,6 +21,7 @@ from .models import InspectResponse
 from .integrations.lark import send_lark_notification_async
 from .integrations.onedrive import get_onedrive_uploader
 from .dashboard import router as dashboard_router
+from datetime import datetime
 
 app = FastAPI(title="ERP Food QA")
 
@@ -56,7 +57,14 @@ _s3 = S3Client()
 _db = DB()
 
 @app.post("/inspect", response_model=InspectResponse)
-async def inspect(background: BackgroundTasks, file: UploadFile, lot_no: str | None = Form(None), item_code: str | None = Form(None), line_id: str | None = Form(None)):
+async def inspect(
+    background: BackgroundTasks,
+    file: UploadFile,
+    lot_no: str | None = Form(None),
+    item_code: str | None = Form(None),
+    line_id: str | None = Form(None),
+    camera_name: str | None = Form(None)
+):
     raw = await file.read()
     bgr = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
     if bgr is None:
@@ -81,13 +89,16 @@ async def inspect(background: BackgroundTasks, file: UploadFile, lot_no: str | N
     print(f"📸 Encoded annotated image to base64")
 
     with _db as db:
-        qa_image_id = db.insert_qa_image(camera_id=settings.CAMERA_ID, lot_no=lot_no, item_code=item_code, line_id=line_id, s3_uri=None, width=bgr.shape[1], height=bgr.shape[0], exposure_ms=None, meta={"filename": file.filename})
+        qa_image_id = db.insert_qa_image(camera_id=camera_name or settings.CAMERA_ID, lot_no=lot_no, item_code=item_code, line_id=line_id, s3_uri=None, width=bgr.shape[1], height=bgr.shape[0], exposure_ms=None, meta={"filename": file.filename})
         qa_result_id = db.insert_qa_result(qa_image_id=qa_image_id, model_name=_detector.model_name, model_version=_detector.model_version, inference_ms=inf_ms, passed=decision["pass"], grade=decision.get("grade"), confidence=decision.get("confidence", 0.0), reason_codes=decision.get("reason_codes", []), metrics=metrics)
     
     if settings.LARK_ENABLED and settings.LARK_WEBHOOK_URL:
-
+        now = datetime.now()
         lark_data = {
             "pass_": decision["pass"],
+            "camera_name": camera_name or settings.CAMERA_ID,
+            "date": now.strftime('%Y-%m-%d'),
+            "time": now.strftime('%H:%M:%S'),
             "grade": decision.get("grade"),
             "confidence": decision.get("confidence", 0.0),
             "good_confidence": decision.get("good_confidence", 0.0),
@@ -97,7 +108,8 @@ async def inspect(background: BackgroundTasks, file: UploadFile, lot_no: str | N
             "item_code": item_code or "N/A",
             "lot_no": lot_no or "N/A",
             "qa_result_id": str(qa_result_id),
-            "inference_ms": inf_ms
+            "inference_ms": inf_ms,
+            
         }
 
         background.add_task(
@@ -112,6 +124,9 @@ async def inspect(background: BackgroundTasks, file: UploadFile, lot_no: str | N
 
     return InspectResponse(
         pass_=decision["pass"], 
+        camera_name=camera_name or settings.CAMERA_ID,
+        date=now.strftime('%Y-%m-%d'),
+        time=now.strftime('%H:%M:%S'),
         grade=decision.get("grade"), 
         confidence=float(decision.get("confidence", 0.0)),
         good_confidence=float(decision.get("good_confidence", 0.0)),
@@ -124,7 +139,8 @@ async def inspect(background: BackgroundTasks, file: UploadFile, lot_no: str | N
         qa_image_id=qa_image_id, 
         qa_result_id=qa_result_id,
         detections=dets,  # Include raw detections
-        annotated_image=annotated_image_base64  # Include base64 encoded annotated image
+        annotated_image=annotated_image_base64,  # Include base64 encoded annotated image
+        
     )
 
 @app.post("/train")

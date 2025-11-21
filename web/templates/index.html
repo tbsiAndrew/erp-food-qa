@@ -370,7 +370,7 @@
         let lastFrameData = null;
         let movementDetected = false;
         let stationaryStartTime = null;
-        let stationaryTimeout = 2000; // ms
+        let stationaryTimeout = 1000; // ms
 
         // Load available cameras
         async function loadCameras() {
@@ -601,12 +601,16 @@
                 tempCanvas.height = canvas.height;
                 const tempCtx = tempCanvas.getContext('2d');
                 tempCtx.drawImage(video, 0, 0, tempCanvas.width, tempCanvas.height);
-                
+
                 const blob = await new Promise(resolve => tempCanvas.toBlob(resolve, 'image/jpeg', 0.95));
-                
+
                 const formData = new FormData();
                 formData.append('file', blob, 'frame.jpg');  // Changed 'image' to 'file' to match FastAPI endpoint
-                
+
+                // Get selected camera name/device from dropdown
+                const selectedCameraName = cameraSelect.options[cameraSelect.selectedIndex].text;
+                formData.append('camera_name', selectedCameraName);
+
                 // Use window.location.hostname to automatically use the correct server IP
                 const apiUrl = `http://${window.location.hostname}:8000/inspect`;
                 const response = await fetch(apiUrl, {
