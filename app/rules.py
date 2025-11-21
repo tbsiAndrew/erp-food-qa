@@ -13,13 +13,13 @@ class RuleEngine:
         Apply rules to detections and calculate aggregate confidence scores
         
         Calculates:
-        - good_confidence: Sum of all 'good' detection confidences
-        - bad_confidence: Sum of all 'bad' detection confidences
+        - good_confidence: Average of all 'good' detection confidences
+        - bad_confidence: Average of all 'bad' detection confidences
         - Overall pass/fail based on which confidence is higher
         """
         # Calculate aggregate confidence by class
-        good_confidence = 0.0
-        bad_confidence = 0.0
+        good_confidence_sum = 0.0
+        bad_confidence_sum = 0.0
         good_count = 0
         bad_count = 0
         
@@ -28,12 +28,35 @@ class RuleEngine:
             conf = d.get("conf", 0.0) * 100  # Convert to percentage
             
             if label == "good":
-                good_confidence += conf
+                good_confidence_sum += conf
                 good_count += 1
             elif label == "bad":
-                bad_confidence += conf
+                bad_confidence_sum += conf
                 bad_count += 1
         
+        # Calculate averages
+        good_confidence = (good_confidence_sum / good_count) if good_count > 0 else 0.0
+        bad_confidence = (bad_confidence_sum / bad_count) if bad_count > 0 else 0.0
+        
+        # If only one class present, report its average confidence; if both, normalize to sum 100%.
+        if good_count > 0 and bad_count == 0:
+            # Only good detected
+            # good_confidence stays as average, bad_confidence is 0
+            pass
+        elif bad_count > 0 and good_count == 0:
+            # Only bad detected
+            # bad_confidence stays as average, good_confidence is 0
+            pass
+        else:
+            # Both detected, normalize to sum 100%
+            total = good_confidence + bad_confidence
+            if total > 0:
+                good_confidence = (good_confidence / total) * 100
+                bad_confidence = (bad_confidence / total) * 100
+            else:
+                good_confidence = 0.0
+                bad_confidence = 0.0
+            
         # Default decision structure
         decision = {
             "pass": False, 

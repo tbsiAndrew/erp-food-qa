@@ -19,6 +19,7 @@ from .models import InspectResponse
 # SAP integration disabled for local non-Docker setup
 # from .integrations.sap_b1 import push_result_to_sap_async
 from .integrations.lark import send_lark_notification_async
+from .integrations.onedrive import get_onedrive_uploader
 from .dashboard import router as dashboard_router
 
 app = FastAPI(title="ERP Food QA")
@@ -83,8 +84,8 @@ async def inspect(background: BackgroundTasks, file: UploadFile, lot_no: str | N
         qa_image_id = db.insert_qa_image(camera_id=settings.CAMERA_ID, lot_no=lot_no, item_code=item_code, line_id=line_id, s3_uri=None, width=bgr.shape[1], height=bgr.shape[0], exposure_ms=None, meta={"filename": file.filename})
         qa_result_id = db.insert_qa_result(qa_image_id=qa_image_id, model_name=_detector.model_name, model_version=_detector.model_version, inference_ms=inf_ms, passed=decision["pass"], grade=decision.get("grade"), confidence=decision.get("confidence", 0.0), reason_codes=decision.get("reason_codes", []), metrics=metrics)
     
-    # Send Lark notification if enabled
     if settings.LARK_ENABLED and settings.LARK_WEBHOOK_URL:
+
         lark_data = {
             "pass_": decision["pass"],
             "grade": decision.get("grade"),
@@ -98,13 +99,12 @@ async def inspect(background: BackgroundTasks, file: UploadFile, lot_no: str | N
             "qa_result_id": str(qa_result_id),
             "inference_ms": inf_ms
         }
-        
-        # Use the already created annotated image for Lark notification
+
         background.add_task(
-            send_lark_notification_async, 
-            lark_data, 
-            settings.LARK_WEBHOOK_URL, 
-            annotated_image,  # Pass annotated image with detection boxes
+            send_lark_notification_async,
+            lark_data,
+            settings.LARK_WEBHOOK_URL,
+            annotated_image,
             settings.LARK_APP_ID,
             settings.LARK_APP_SECRET,
             settings.LARK_DRIVE_FOLDER_TOKEN

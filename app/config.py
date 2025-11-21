@@ -27,7 +27,14 @@ class Settings(BaseSettings):
     LARK_BASE_ID: str = Field("", env="LARK_BASE_ID")
     LARK_TABLE_ID: str = Field("", env="LARK_TABLE_ID")
     LARK_FIELD_ID: str = Field("", env="LARK_FIELD_ID")
+    LARK_TENANT_ACCESS_TOKEN: str = Field("", env="LARK_TENANT_ACCESS_TOKEN")
     ANYCROSS_ACCESS_TOKEN: str = Field("none", env="ANYCROSS_ACCESS_TOKEN")
+    
+    # OneDrive integration
+    ONEDRIVE_TENANT_ID: str = Field("", env="ONEDRIVE_TENANT_ID")
+    ONEDRIVE_CLIENT_ID: str = Field("", env="ONEDRIVE_CLIENT_ID")
+    ONEDRIVE_CLIENT_SECRET: str = Field("", env="ONEDRIVE_CLIENT_SECRET")
+    ONEDRIVE_FOLDER_PATH: str = Field("QA_Detection_Results", env="ONEDRIVE_FOLDER_PATH")
     
     class Config:
         env_file = ".env"

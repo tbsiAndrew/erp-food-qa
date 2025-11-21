@@ -9,7 +9,8 @@ import cv2
 import numpy as np
 import os
 from datetime import datetime
-
+from dotenv import load_dotenv
+load_dotenv()
 
 class LarkNotifier:
     def __init__(self, webhook_url: str = None, app_id: str = None, app_secret: str = None, drive_folder_token: str = None):
@@ -82,26 +83,26 @@ class LarkNotifier:
                     traceback.print_exc()
             
             # --- Create file in Anycross Base ---
-            if image is not None:
-                # Example usage, replace with your actual values
-                anycross_url = os.getenv('ANYCROSS_CREATE_FILE_URL')  # e.g. 'https://anycross-sg.larksuite.com/open-apis/base/v1/app/create_file_from_content'
-                base_id = os.getenv('LARK_BASE_ID')
-                table_id = os.getenv('LARK_TABLE_ID')
-                field_id = os.getenv('LARK_FIELD_ID')
-                access_token = os.getenv('ANYCROSS_ACCESS_TOKEN')
-                if anycross_url and base_id and table_id and field_id and access_token:
-                    anycross_resp = self.create_file_in_anycross_base(
-                        image_bytes=image_bytes,
-                        filename=filename,
-                        anycross_url=anycross_url,
-                        base_id=base_id,
-                        table_id=table_id,
-                        field_id=field_id,
-                        access_token=access_token
-                    )
-                    print(f"✅ Anycross file creation response: {anycross_resp}")
-                else:
-                    print("⚠️ Anycross config missing, skipping file creation in Lark Base")
+            # if image is not None:
+            #     # Example usage, replace with your actual values
+            #     anycross_url = os.getenv('ANYCROSS_CREATE_FILE_URL')  # e.g. 'https://anycross-sg.larksuite.com/open-apis/base/v1/app/create_file_from_content'
+            #     base_id = os.getenv('LARK_BASE_ID')
+            #     table_id = os.getenv('LARK_TABLE_ID')
+            #     field_id = os.getenv('LARK_FIELD_ID')
+            #     access_token = os.getenv('ANYCROSS_ACCESS_TOKEN')
+            #     if anycross_url and base_id and table_id and field_id and access_token:
+            #         anycross_resp = self.create_file_in_anycross_base(
+            #             image_bytes=image_bytes,
+            #             filename='qa_inspection.jpg',
+            #             anycross_url=anycross_url,
+            #             base_id=base_id,
+            #             table_id=table_id,
+            #             field_id=field_id,
+            #             access_token=access_token
+            #         )
+            #         print(f"✅ Anycross file creation response: {anycross_resp}")
+            #     else:
+            #         print("⚠️ Anycross config missing, skipping file creation in Lark Base")
             
             # Send result_data directly as JSON to Anycross webhook
             response = requests.post(
@@ -263,11 +264,13 @@ class LarkNotifier:
                 return None
             
             # Use the correct My Space folder token for QA Images
-            qa_folder_token = self.drive_folder_token or 'Q9YsfWZgvlWwuLdhWUdliwdEgMQ'
+            # qa_folder_token = self.drive_folder_token or 'Q9YsfWZgvlWwuLdhWUdliwdEgMQ'
+            parent_base_token = os.getenv('LARK_BASE_ID')
+            print(f"🔍 parent_base_token: {parent_base_token}")
             
-            if not qa_folder_token:
-                print("⚠️ No Drive folder token configured")
-                return None
+            # if not qa_folder_token:
+            #     print("⚠️ No Drive folder token configured")
+            #     return None
             
             upload_url = "https://open.larksuite.com/open-apis/drive/v1/medias/upload_all"
             files = {
@@ -275,19 +278,19 @@ class LarkNotifier:
             }
             data = {
                 'file_name': 'qa_inspection.jpg',
-                'parent_type': 'explorer',
-                'parent_node': qa_folder_token,
+                'parent_type': 'bitable',
+                'parent_node': parent_base_token,
                 'size': str(len(image_bytes))
             }
             headers = {
                 'Authorization': f'Bearer {tenant_access_token}'
             }
             
-            print(f"🔍 Uploading to folder token: {qa_folder_token}")
+            print(f"🔍 Uploading to folder token: {parent_base_token}")
             response = requests.post(upload_url, files=files, data=data, headers=headers)
             
-            print(f"🔍 Lark Drive upload_all response status: {response.status_code}")
-            print(f"🔍 Lark Drive upload_all response: {response.text}")
+            print(f"🔍 Lark Base upload_all response status: {response.status_code}")
+            print(f"🔍 Lark Base upload_all response: {response.text}")
             
             if response.status_code == 200:
                 result = response.json()
@@ -296,14 +299,14 @@ class LarkNotifier:
                     print(f"✅ Image uploaded to Lark Drive, file_token: {file_token}")
                     return file_token
                 else:
-                    print(f"⚠️ Lark Drive upload_all error: {result}")
+                    print(f"⚠️ Lark Base upload_all error: {result}")
             else:
-                print(f"⚠️ Lark Drive upload_all failed: {response.text}")
+                print(f"⚠️ Lark Base upload_all failed: {response.text}")
             
             return None
             
         except Exception as e:
-            print(f"⚠️ Failed to upload image to Lark Drive: {e}")
+            print(f"⚠️ Failed to upload image to Lark Base: {e}")
             import traceback
             traceback.print_exc()
             return None

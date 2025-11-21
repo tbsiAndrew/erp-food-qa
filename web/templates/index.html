@@ -366,6 +366,11 @@
         let autoMode = false; // Auto detection OFF by default
         let fpsHistory = [];
         let lastFrameTime = Date.now();
+        // Movement detection variables
+        let lastFrameData = null;
+        let movementDetected = false;
+        let stationaryStartTime = null;
+        let stationaryTimeout = 2000; // ms
 
         // Load available cameras
         async function loadCameras() {
@@ -696,13 +701,69 @@
             statusIndicator.style.background = color;
         }
 
+        // Helper: get grayscale image data from video
+        function getFrameData() {
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = canvas.width;
+            tempCanvas.height = canvas.height;
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.drawImage(video, 0, 0, tempCanvas.width, tempCanvas.height);
+            // Get grayscale pixel data
+            const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+            const data = imageData.data;
+            let gray = new Uint8Array(tempCanvas.width * tempCanvas.height);
+            for (let i = 0, j = 0; i < data.length; i += 4, j++) {
+                // Simple grayscale conversion
+                gray[j] = 0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2];
+            }
+            return gray;
+        }
+
+        // Helper: compare two frames for movement
+        function isFrameMoving(frameA, frameB, threshold = 30, pixelDiffRatio = 0.01) {
+            if (!frameA || !frameB || frameA.length !== frameB.length) return true; // treat as moving if invalid
+            let diffCount = 0;
+            for (let i = 0; i < frameA.length; i++) {
+                if (Math.abs(frameA[i] - frameB[i]) > threshold) diffCount++;
+            }
+            // Make detection stricter: require less pixel change to be considered moving
+            return (diffCount / frameA.length) > 0.005; // 0.5% pixels changed
+        }
+
         function startAutoInspect() {
             if (autoInspectInterval) return;
             autoInspectInterval = setInterval(() => {
-                if (!isInspecting) {
-                    performInspection();
+                if (!autoMode || isInspecting) return;
+                // Movement detection
+                const frameData = getFrameData();
+                if (lastFrameData) {
+                    movementDetected = isFrameMoving(frameData, lastFrameData);
+                } else {
+                    movementDetected = true; // First frame, assume moving
                 }
-            }, 2000);
+                lastFrameData = frameData;
+
+                if (movementDetected) {
+                    stationaryStartTime = null;
+                    setStatus('Waiting for object to stop...', '#888');
+                } else {
+                    if (!stationaryStartTime) {
+                        stationaryStartTime = Date.now();
+                        setStatus('Object stopped, waiting...', '#FFC107');
+                    } else {
+                        let elapsed = Date.now() - stationaryStartTime;
+                        if (elapsed < stationaryTimeout) {
+                            setStatus(`Object stopped, capturing in ${(stationaryTimeout - elapsed)/1000}s`, '#FFC107');
+                        } else {
+                            // Only trigger inspection ONCE per stationary period
+                            if (!isInspecting) {
+                                performInspection();
+                                stationaryStartTime = null; // Reset for next detection
+                            }
+                        }
+                    }
+                }
+            }, 200); // Check movement every 200ms for responsiveness
         }
 
         function stopAutoInspect() {

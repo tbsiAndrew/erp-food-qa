@@ -7,6 +7,8 @@ echo Starting ERP Food QA Application (Local Mode)
 echo ============================================================
 echo.
 
+call .venv\Scripts\activate
+
 REM Create storage directories if they don't exist
 if not exist "storage\images" mkdir storage\images
 if not exist "storage" mkdir storage
