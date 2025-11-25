@@ -1,3 +1,5 @@
+
+
 from flask import Flask, render_template, request, jsonify, Response
 import requests
 import base64
@@ -45,7 +47,18 @@ except Exception as e:
     USE_ULTRALYTICS = False
     model = None
 
-
+@app.route('/api/models', methods=['GET'])
+def get_models():
+    import os
+    detect_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'runs', 'detect')
+    models = []
+    if os.path.exists(detect_dir):
+        for name in os.listdir(detect_dir):
+            path = os.path.join(detect_dir, name)
+            if os.path.isdir(path) and name.startswith('bread_qa'):
+                models.append(name)
+    models.sort()
+    return jsonify({'models': models})
 
 @app.route('/')
 def index():
@@ -78,6 +91,35 @@ def get_cameras():
                 })
             cap.release()
     return jsonify({'cameras': cameras})
+
+# Active model version for Flask YOLO
+active_model_version = 'bread_qa2'
+
+# Helper to reload YOLO model
+def reload_yolo_model(model_version):
+    global model, active_model_version
+    from ultralytics import YOLO
+    import os
+    model_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'runs', 'detect', model_version, 'weights', 'best.pt')
+    if os.path.exists(model_path):
+        model = YOLO(model_path)
+        active_model_version = model_version
+        print(f"✓ Reloaded YOLO model: {model_path}")
+        return True
+    else:
+        print(f"❌ Model not found: {model_path}")
+        return False
+
+# API endpoint to set model version
+@app.route('/api/set_model', methods=['POST'])
+def set_model():
+    data = request.json
+    model_version = data.get('model_version')
+    if not model_version:
+        return jsonify({'success': False, 'error': 'model_version required'}), 400
+    success = reload_yolo_model(model_version)
+    return jsonify({'success': success, 'model_version': model_version})
+
 
 @app.route('/api/set_camera', methods=['POST'])
 def set_camera():

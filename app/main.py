@@ -10,6 +10,7 @@ from pathlib import Path
 
 from .detectors.api_detector import APIDetector
 from .detectors.yolo_detector import YOLOQualityDetector
+import glob
 from .metrics import compute_metrics
 from .rules import RuleEngine
 from .storage import S3Client
@@ -44,17 +45,27 @@ app.mount("/storage", StaticFiles(directory="storage"), name="storage")
 
 app.include_router(dashboard_router)
 
-# Use YOLO detector instead of API detector for trained model
-try:
-    _detector = YOLOQualityDetector()  # Auto-loads trained model
-    print(f"✅ Using YOLOQualityDetector with trained model")
-except Exception as e:
-    print(f"⚠️ Failed to load YOLO detector, falling back to API detector: {e}")
-    _detector = APIDetector(api_endpoint=settings.API_ENDPOINT)
-
 _rules = RuleEngine(settings.RULES_PATH)
 _s3 = S3Client()
 _db = DB()
+
+def get_model_path(model_version):
+    # Find the best.pt for the given model version
+    model_dir = Path(f"runs/detect/{model_version}/weights")
+    model_path = model_dir / "best.pt"
+    if model_path.exists():
+        return str(model_path)
+    # fallback to base model
+    return str(Path("models/yolov8n.pt"))
+
+def get_next_model_version():
+    # Find all bread_qa* folders and increment
+    detect_dir = Path("runs/detect")
+    versions = [d.name for d in detect_dir.iterdir() if d.is_dir() and d.name.startswith("bread_qa") and d.name.replace("bread_qa","").isdigit()]
+    nums = [int(v.replace("bread_qa", "")) for v in versions]
+    next_num = max(nums) + 1 if nums else 2
+    return f"bread_qa{next_num}"
+
 
 @app.post("/inspect", response_model=InspectResponse)
 async def inspect(
@@ -63,37 +74,37 @@ async def inspect(
     lot_no: str | None = Form(None),
     item_code: str | None = Form(None),
     line_id: str | None = Form(None),
-    camera_name: str | None = Form(None)
+    camera_name: str | None = Form(None),
+    model_version: str | None = Form("bread_qa")
 ):
     raw = await file.read()
     bgr = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
     if bgr is None:
         return JSONResponse(status_code=400, content={"detail": "Invalid image"})
 
+    # Dynamically load model
+    model_path = get_model_path(model_version)
+    detector = YOLOQualityDetector(model_path)
+
     t0 = time.perf_counter()
-    dets = _detector.predict(bgr)
+    dets = detector.predict(bgr)
     inf_ms = (time.perf_counter() - t0) * 1000
 
     metrics = compute_metrics(bgr)
     decision = _rules.apply(dets=dets, metrics=metrics)
 
-    # Create annotated image with detection boxes
     annotated_image = bgr.copy()
-    annotated_image = _detector.draw_detections(annotated_image, dets)
-    print(f"🎨 Created annotated image with {len(dets)} detections")
-
-    # Convert annotated image to base64 for frontend display
+    annotated_image = detector.draw_detections(annotated_image, dets)
     import base64
     _, buffer = cv2.imencode('.jpg', annotated_image)
     annotated_image_base64 = base64.b64encode(buffer).decode('utf-8')
-    print(f"📸 Encoded annotated image to base64")
 
     with _db as db:
         qa_image_id = db.insert_qa_image(camera_id=camera_name or settings.CAMERA_ID, lot_no=lot_no, item_code=item_code, line_id=line_id, s3_uri=None, width=bgr.shape[1], height=bgr.shape[0], exposure_ms=None, meta={"filename": file.filename})
-        qa_result_id = db.insert_qa_result(qa_image_id=qa_image_id, model_name=_detector.model_name, model_version=_detector.model_version, inference_ms=inf_ms, passed=decision["pass"], grade=decision.get("grade"), confidence=decision.get("confidence", 0.0), reason_codes=decision.get("reason_codes", []), metrics=metrics)
-    
+        qa_result_id = db.insert_qa_result(qa_image_id=qa_image_id, model_name=detector.model_name, model_version=model_version, inference_ms=inf_ms, passed=decision["pass"], grade=decision.get("grade"), confidence=decision.get("confidence", 0.0), reason_codes=decision.get("reason_codes", []), metrics=metrics)
+
+    now = datetime.now()
     if settings.LARK_ENABLED and settings.LARK_WEBHOOK_URL:
-        now = datetime.now()
         lark_data = {
             "pass_": decision["pass"],
             "camera_name": camera_name or settings.CAMERA_ID,
@@ -109,9 +120,7 @@ async def inspect(
             "lot_no": lot_no or "N/A",
             "qa_result_id": str(qa_result_id),
             "inference_ms": inf_ms,
-            
         }
-
         background.add_task(
             send_lark_notification_async,
             lark_data,
@@ -138,9 +147,8 @@ async def inspect(
         inference_ms=inf_ms, 
         qa_image_id=qa_image_id, 
         qa_result_id=qa_result_id,
-        detections=dets,  # Include raw detections
-        annotated_image=annotated_image_base64,  # Include base64 encoded annotated image
-        
+        detections=dets,
+        annotated_image=annotated_image_base64,
     )
 
 @app.post("/train")
@@ -149,7 +157,8 @@ async def train_model(
     label: str = Form(...), 
     item_code: str | None = Form(None),
     auto_retrain: bool = Form(False),
-    min_images_before_retrain: int = Form(10)
+    min_images_before_retrain: int = Form(10),
+    model_version: str | None = Form("bread_qa")
 ):
     """
     Upload training images to fine-tune the quality inspection model.
@@ -223,16 +232,18 @@ async def train_model(
             pending_count = len(good_images) + len(bad_images)
             
             if pending_count >= min_images_before_retrain:
-                # Trigger incremental training in background
+                # Trigger incremental training in background with new version
                 import subprocess
                 try:
-                    # Run incremental training script
+                    next_version = get_next_model_version()
                     subprocess.Popen([
-                        "python", "incremental_train.py", 
+                        "python", "app/incremental_train.py", 
                         "--epochs", "10",
-                        "--batch", "8"
+                        "--batch", "8",
+                        "--model_version", next_version
                     ])
                     retrain_triggered = True
+                    response_data = {"new_model_version": next_version}
                 except Exception as e:
                     print(f"⚠️ Failed to trigger auto-retrain: {e}")
         
