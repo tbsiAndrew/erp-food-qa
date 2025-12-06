@@ -290,9 +290,10 @@ MIT License - see LICENSE file for details.
 
 ---
 
-## 👥 Authors
+## 👥 Developers
 
 - **Andrew** - *Initial work* - [tbsiAndrew](https://github.com/tbsiAndrew)
+- **Quelvin** - *Initial work* - [tbsiquelvin](@TBSI-QuelvinLomiguen)
 
 ---
 
