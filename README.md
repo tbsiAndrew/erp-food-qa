@@ -279,7 +279,7 @@ MIT License - see LICENSE file for details.
 - Ultralytics for YOLOv8
 - FastAPI for API framework
 - OpenCV community
-- All contributors and testers
+- DIREC AMPLIFAI
 
 ---
 
