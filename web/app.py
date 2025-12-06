@@ -34,8 +34,8 @@ try:
     #     print("⚠ Trained model not found, using default yolov8n.pt")
 
     # Load trained bread quality model
-    model_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'runs', 'detect', 'bread_qa2', 'weights', 'best.pt')
-    print("⚠️  ALERT: Using bread_qa2")
+    model_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'runs', 'detect', 'bread_qa', 'weights', 'best.pt')
+    print("⚠️  ALERT: Using bread_qa")
     
     # Load model with VERY LOW confidence threshold due to poor training
     model = YOLO(model_path)
@@ -93,7 +93,7 @@ def get_cameras():
     return jsonify({'cameras': cameras})
 
 # Active model version for Flask YOLO
-active_model_version = 'bread_qa2'
+active_model_version = 'bread_qa'
 
 # Helper to reload YOLO model
 def reload_yolo_model(model_version):

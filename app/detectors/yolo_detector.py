@@ -8,7 +8,7 @@ from ultralytics import YOLO
 import os
 
 class YOLOQualityDetector:
-    def __init__(self, model_path='yolov8n.pt', conf_threshold=0.25):  # VERY LOW threshold due to poor label quality
+    def __init__(self, model_path='yolov8n.pt', conf_threshold=0.35):  # VERY LOW threshold due to poor label quality
         """
         Initialize YOLO detector
         
@@ -20,7 +20,7 @@ class YOLOQualityDetector:
         import os
 
         # Check for models in order: bread_qa11 (latest) -> bread_qa3 -> bread_qa2 -> bread_qa
-        for model_name in ['bread_qa2', 'bread_qa3', 'bread_qa2', 'bread_qa']:
+        for model_name in ['bread_qa', 'bread_qa2', 'bread_qa3', 'bread_q4']:
             trained_model_path = os.path.join('runs', 'detect', model_name, 'weights', 'best.pt')
             if os.path.exists(trained_model_path):
                 model_path = trained_model_path
