@@ -163,9 +163,9 @@ python web/app.py
 ```
 
 ### 6️⃣ Access the Application
-- Web Interface: http://127.0.0.1:5000
+- Web Interface: http://127.0.0.1:5555
 - API Docs: http://127.0.0.1:8000/docs
-- Training: http://127.0.0.1:5000/train
+- Training: http://127.0.0.1:5555/train
 
 ---
 

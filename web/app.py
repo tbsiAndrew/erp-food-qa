@@ -5,8 +5,13 @@ import requests
 import base64
 import cv2
 import numpy as np
+from ultralytics import YOLO
+import os
 
 app = Flask(__name__)
+
+# Active model version for Flask YOLO
+active_model_version = 'bread_qa'
 
 FASTAPI_URL = "http://127.0.0.1:8000"
 
@@ -16,24 +21,6 @@ camera_capture = None
 
 # Try to load YOLO model, fallback to OpenCV DNN if ultralytics fails
 try:
-    from ultralytics import YOLO
-    import os
-    
-    # # Try to use the LATEST trained bread quality model
-    # base_dir = os.path.dirname(os.path.dirname(__file__))
-    
-    # # Check for models in order: bread_qa3 (latest) -> bread_qa2 -> bread_qa
-    # for model_name in ['bread_qa3', 'bread_qa2', 'bread_qa']:
-    #     trained_model_path = os.path.join(base_dir, 'runs', 'detect', model_name, 'weights', 'best.pt')
-    #     if os.path.exists(trained_model_path):
-    #         model_path = trained_model_path
-    #         print(f"✓ Using TRAINED Bread Quality YOLO model: {model_name}")
-    #         break
-    # else:
-    #     model_path = os.path.join(os.path.dirname(__file__), 'yolov8n.pt')
-    #     print("⚠ Trained model not found, using default yolov8n.pt")
-
-    # Load trained bread quality model
     model_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'runs', 'detect', 'bread_qa', 'weights', 'best.pt')
     print("⚠️  ALERT: Using bread_qa")
     
@@ -91,9 +78,6 @@ def get_cameras():
                 })
             cap.release()
     return jsonify({'cameras': cameras})
-
-# Active model version for Flask YOLO
-active_model_version = 'bread_qa'
 
 # Helper to reload YOLO model
 def reload_yolo_model(model_version):
