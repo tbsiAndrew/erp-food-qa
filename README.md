@@ -30,6 +30,23 @@ SMARTBITES automates bread quality inspection using two main approaches:
 - Offline operation when API is unavailable
 - Incremental model training with new data
 
+### 🔄 Approach 3: Incremental Training (New Feature)
+
+SMARTBITES now supports **incremental training** for the bread quality model. This allows you to fine-tune and update the YOLOv8 model with new labeled data without retraining from scratch. Incremental training is integrated across the backend, web UI, and Lark Base workflows:
+
+- **Web UI** (`train.html`): Select and annotate new training images, submit them for incremental training, and monitor progress live.
+- **Flask & FastAPI Integration** (`web/app.py`, `app/main.py`): Training images and labels are sent to the backend, which triggers incremental training when enough new data is available.
+- **Incremental Training Script** (`app/incremental_train.py`): Handles reorganizing new data, updating YOLO datasets, and fine-tuning the model using previous weights. Supports automatic retraining and dataset management.
+- **Lark Integration** (`app/integrations/lark.py`): Training items and annotations can be sourced from Lark Base, and training status is updated back to Lark.
+
+**Benefits:**
+- Continually improve model accuracy with new data
+- No need to retrain from scratch
+- Seamless workflow from annotation to training
+- Supports auto-retrain when enough images are collected
+
+See below for usage and workflow details.
+
 ### ⭐ Core Features
 - Real-time camera feed inspection
 - Automated grading (good/bad/defect)
@@ -37,6 +54,8 @@ SMARTBITES automates bread quality inspection using two main approaches:
 - Training data collection & fine-tuning
 - Database persistence
 - Web dashboard for monitoring & analytics
+
+- Incremental YOLO model training (new data)
 
 ---
 
@@ -52,6 +71,9 @@ flowchart TD
     FastAPI --> Storage[Storage & Database]
     FastAPI --> Integration[Integration Layer]
     Integration --> Lark[Lark Integration]
+  WebUI[Web UI: Annotation & Training] --> Flask
+  LarkBase[Lark Base: Training Items] --> FastAPI
+  FastAPI -->|Incremental Training| IncrementalTrain[Incremental Training Engine]
 ```
 
 ---
@@ -185,11 +207,29 @@ python web/app.py
 3. Label images
 4. Submit for training
 
+### 🔄 Incremental Training Workflow
+1. Annotate/select training images in the web UI (`/train`)
+2. Submit images and bounding boxes for training
+3. Backend stores new data and triggers incremental training when enough images are collected
+4. Model is fine-tuned using previous weights (see `app/incremental_train.py`)
+5. Training progress and results are shown in the UI
+6. Model is automatically reloaded for inspection
+
+**Manual Trigger:**
+You can also run incremental training directly:
+```bash
+python app/incremental_train.py --epochs 10 --batch 8 --model_version bread_qaXX
+```
+
 ### 🔗 API Endpoints
 - `POST /inspect` - Analyze image
 - `POST /train` - Submit training data
 - `GET /results` - Inspection history
 - `GET /dashboard` - Analytics dashboard
+
+- `GET /training_items` - Get training items from Lark Base
+- `GET /training_image/{record_id}` - Get training image by record ID
+- `POST /start_training` - Start incremental training with selected images
 
 ---
 
@@ -250,6 +290,13 @@ python -m ultralytics train \
 ```bash
 RUN_INCREMENTAL_TRAINING.bat
 ```
+
+**How it works:**
+- New training images are saved in `dataset/bread_qa_auto_labeled/images/good` and `images/bad`.
+- Labels are saved in corresponding `labels/good` and `labels/bad` folders.
+- The incremental training script reorganizes new data, splits into train/val, and fine-tunes the model using previous weights.
+- Training can be triggered automatically from the web UI or manually.
+- Model weights are saved in `runs/detect/bread_qaXX/weights/best.pt`.
 
 ---
 

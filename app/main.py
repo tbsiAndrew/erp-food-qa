@@ -1,12 +1,15 @@
 
 from fastapi import FastAPI, UploadFile, Form, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import numpy as np
 import cv2, time
 from pathlib import Path
+import base64
+import json
+import requests
 
 from .detectors.api_detector import APIDetector
 from .detectors.yolo_detector import YOLOQualityDetector
@@ -19,7 +22,7 @@ from .config import settings
 from .models import InspectResponse
 # SAP integration disabled for local non-Docker setup
 # from .integrations.sap_b1 import push_result_to_sap_async
-from .integrations.lark import send_lark_notification_async
+from .integrations.lark import send_lark_notification_async, LarkBaseClient
 from .integrations.onedrive import get_onedrive_uploader
 from .dashboard import router as dashboard_router
 from datetime import datetime
@@ -278,4 +281,360 @@ async def train_model(
             "training_id": training_id,
             "s3_uri": _s3.uri_for(s3_key),
             "message": f"Saved to S3 but local save failed: {str(e)}"
+        })
+
+
+@app.get("/training_items")
+async def get_training_items():
+    """
+    Fetch training items from Lark Base with 'Train to Model' = 'Yes'
+    
+    Returns:
+        {
+            "yes": [list of items marked 'Yes']
+        }
+    """
+    try:
+        lark_client = LarkBaseClient()
+        
+        # Fetch only 'Yes' records
+        yes_items = lark_client.get_training_records(status="Yes", limit=50)
+        
+        # Format response with essential fields
+        formatted_items = []
+        for item in yes_items:
+            fields = item.get('fields', {})
+            record_id = item.get('record_id')
+            formatted_items.append({
+                'record_id': record_id,
+                'qa_tagging': fields.get('QA Tagging'),
+                'train_to_model': fields.get('Train to Model'),
+                'train_label': fields.get('Train Label'),
+                'qa_decision': fields.get('QA Decision'),
+                'item_code': fields.get('Item Code'),
+                'attachment': fields.get('Attachment'),  # Image attachment field
+                'has_attachment': len(fields.get('Attachment', [])) > 0
+            })
+        
+        return JSONResponse(content={
+            "status": "success",
+            "data": {
+                "yes": formatted_items
+            },
+            "count": len(formatted_items)
+        })
+        
+    except Exception as e:
+        return JSONResponse(status_code=500, content={
+            "status": "error",
+            "message": f"Failed to fetch training items: {str(e)}"
+        })
+
+
+@app.get("/training_image/{record_id}")
+async def get_training_image(record_id: str):
+    """
+    Download image from Lark Base record by record_id
+    
+    Args:
+        record_id: Lark Base record ID
+        
+    Returns:
+        Image as base64 encoded string
+    """
+    try:
+        lark_client = LarkBaseClient()
+        token = lark_client._get_tenant_access_token()
+        
+        if not token:
+            print(f"❌ Failed to get Lark token for {record_id}")
+            return JSONResponse(status_code=500, content={
+                "status": "error",
+                "error": "Failed to authenticate with Lark"
+            })
+        
+        # Fetch the specific record
+        url = f"https://open.larksuite.com/open-apis/bitable/v1/apps/{lark_client.base_id}/tables/{lark_client.table_id}/records/{record_id}"
+        headers = {'Authorization': f'Bearer {token}'}
+        
+        print(f"🔍 Fetching record: {record_id}")
+        response = requests.get(url, headers=headers)
+        
+        if response.status_code != 200:
+            print(f"❌ HTTP {response.status_code}: {response.text}")
+            return JSONResponse(status_code=500, content={
+                "status": "error",
+                "error": f"Failed to fetch record: HTTP {response.status_code}"
+            })
+        
+        data = response.json()
+        if data.get('code') != 0:
+            print(f"❌ Lark API error: {data}")
+            return JSONResponse(status_code=500, content={
+                "status": "error",
+                "error": "Invalid response from Lark"
+            })
+        
+        fields = data.get('data', {}).get('record', {}).get('fields', {})
+        
+        # Try different possible field names for attachments
+        attachment_field = (
+            fields.get('Attachment') or 
+            fields.get('attachment') or
+            fields.get('Image') or
+            fields.get('image') or
+            fields.get('Images') or
+            []
+        )
+        
+        print(f"📋 Available fields: {list(fields.keys())}")
+        print(f"📎 Attachment field: {attachment_field[:200] if attachment_field else 'None'}")
+        
+        if not attachment_field or len(attachment_field) == 0:
+            print(f"❌ No attachment found for {record_id}")
+            print(f"   Available fields in record: {list(fields.keys())}")
+            print(f"   Please check which field contains images in your Lark Base")
+            return JSONResponse(status_code=404, content={
+                "status": "error",
+                "error": "No image attachment found",
+                "available_fields": list(fields.keys())
+            })
+        
+        # Download image
+        print(f"📥 Downloading image for {record_id}")
+        img = lark_client.download_image_from_attachment(attachment_field)
+        
+        if img is None:
+            print(f"❌ Failed to download image for {record_id}")
+            return JSONResponse(status_code=404, content={
+                "status": "error",
+                "error": "Image download failed"
+            })
+        
+        # Encode as base64
+        _, buffer = cv2.imencode('.jpg', img)
+        img_base64 = base64.b64encode(buffer).decode('utf-8')
+        
+        print(f"✅ Image fetched successfully for {record_id}")
+        return JSONResponse(content={
+            "status": "success",
+            "image": img_base64,
+            "record_id": record_id
+        })
+        
+    except Exception as e:
+        return JSONResponse(status_code=500, content={
+            "status": "error",
+            "message": f"Failed to download image: {str(e)}"
+        })
+
+
+class TrainingRequest(BaseModel):
+    selected_records: list  # List of {record_id, label, bounding_box}
+    model_version: str = "bread_qa"
+
+
+@app.post("/start_training")
+async def start_training(request: TrainingRequest, background: BackgroundTasks):
+    """
+    Start incremental training with selected images from Lark Base
+    Saves labels to 'Train Label' field and updates 'Train to Model' to 'Trained'
+    
+    Args:
+        selected_records: List of records with labels and bounding boxes
+        model_version: Model version to train
+        
+    Returns:
+        Training progress updates
+    """
+    try:
+        from .incremental_train import incremental_train
+        import uuid
+        from datetime import datetime
+        
+        lark_client = LarkBaseClient()
+        
+        # Create temporary training folder with timestamp
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        temp_training_folder = Path(f"dataset/fine_tuning_{timestamp}")
+        
+        # Create folder structure
+        temp_images_dir = temp_training_folder / "images" / "train"
+        temp_labels_dir = temp_training_folder / "labels" / "train"
+        temp_images_dir.mkdir(parents=True, exist_ok=True)
+        temp_labels_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Process selected records
+        training_data = []
+        
+        for record_data in request.selected_records:
+            record_id = record_data.get('record_id')
+            label = record_data.get('label')  # 'good' or 'bad'
+            bbox = record_data.get('bounding_box')  # {x, y, width, height} normalized
+            yolo_label_str = record_data.get('yolo_label', '')  # YOLO format: "class_id x y w h"
+            
+            # Download image
+            token = lark_client._get_tenant_access_token()
+            url = f"https://open.larksuite.com/open-apis/bitable/v1/apps/{lark_client.base_id}/tables/{lark_client.table_id}/records/{record_id}"
+            headers = {'Authorization': f'Bearer {token}'}
+            response = requests.get(url, headers=headers)
+            
+            if response.status_code != 200:
+                print(f"⚠️ Failed to fetch record {record_id}")
+                continue
+                
+            data = response.json()
+            fields = data.get('data', {}).get('record', {}).get('fields', {})
+            
+            # Try multiple possible attachment field names
+            attachment_field = None
+            for field_name in ['Attachment', 'attachment', 'Image', 'image', 'Images', 'images', 'Photo', 'photo', 'File', 'file', '附件', '图片']:
+                if field_name in fields and fields[field_name]:
+                    attachment_field = fields[field_name]
+                    print(f"📎 Found attachment in field: {field_name}")
+                    break
+            
+            if not attachment_field:
+                print(f"⚠️ No attachment found in record {record_id}")
+                print(f"   Available fields: {list(fields.keys())}")
+                continue
+            
+            # Check if there's an existing Train Label in Lark Base
+            existing_train_label = fields.get('Train Label', '')
+            
+            img = lark_client.download_image_from_attachment(attachment_field)
+            if img is None:
+                print(f"⚠️ Failed to download image for {record_id}")
+                continue
+            
+            # Map label to YOLO class name
+            class_name = "bad" if label.lower() in ["bad", "defect"] else "good"
+            class_id = 1 if class_name == "bad" else 0
+            
+            # Generate unique filename using record_id for traceability
+            image_filename = f"{record_id}.jpg"
+            label_filename = f"{record_id}.txt"
+            
+            image_path = temp_images_dir / image_filename
+            label_path = temp_labels_dir / label_filename
+            
+            # Save image
+            cv2.imwrite(str(image_path), img)
+            print(f"💾 Saved image: {image_path}")
+            
+            # Save YOLO label - Priority: yolo_label_str > existing_train_label > bbox > default
+            if yolo_label_str:
+                # Use the YOLO format label directly from frontend (newly drawn)
+                label_line = yolo_label_str
+                print(f"📝 Using frontend YOLO label: {label_line}")
+            elif existing_train_label and existing_train_label.strip():
+                # Use existing Train Label from Lark Base (previously saved)
+                label_line = existing_train_label.strip()
+                print(f"📋 Using existing Train Label: {label_line}")
+            elif bbox:
+                # Construct from bounding box
+                center_x = bbox.get('x', 0.5)
+                center_y = bbox.get('y', 0.5)
+                width = bbox.get('width', 1.0)
+                height = bbox.get('height', 1.0)
+                label_line = f"{class_id} {center_x} {center_y} {width} {height}"
+                print(f"📐 Using bbox: {label_line}")
+            else:
+                # Full image bounding box
+                label_line = f"{class_id} 0.5 0.5 1.0 1.0"
+                print(f"📦 Using full image bbox: {label_line}")
+            
+            # Write label file
+            with open(label_path, 'w') as f:
+                f.write(f"{label_line}\n")
+            print(f"💾 Saved label: {label_path}")
+            
+            # Update 'Train Label' field in Lark Base with YOLO format (only if new label was drawn)
+            if yolo_label_str:
+                lark_client.update_record_field(record_id, "Train Label", label_line)
+                print(f"💾 Saved Train Label to Lark Base: {label_line}")
+            
+            training_data.append({
+                'record_id': record_id,
+                'label': class_name,
+                'class_id': class_id,
+                'image_path': str(image_path),
+                'label_path': str(label_path),
+                'bbox': bbox
+            })
+        
+        if len(training_data) == 0:
+            return JSONResponse(status_code=400, content={
+                "status": "error",
+                "message": "No valid training data. Could not download images from Lark Base."
+            })
+        
+        # Create data.yaml for YOLO training
+        data_yaml_path = temp_training_folder / "data.yaml"
+        with open(data_yaml_path, 'w') as f:
+            f.write(f"""# Training configuration
+path: {temp_training_folder.absolute()}
+train: images/train
+val: images/train  # Using same for validation (small dataset)
+
+# Classes
+names:
+  0: good
+  1: bad
+""")
+        
+        # Start training in background
+        def train_and_update():
+            try:
+                # Run incremental training with the temp folder
+                next_version = get_next_model_version()
+                print(f"🚀 Starting training with dataset folder: {temp_training_folder}")
+                
+                results = incremental_train(
+                    epochs=10,
+                    batch=8,
+                    patience=5,
+                    model_version=next_version,
+                    dataset_folder=str(temp_training_folder)  # Pass the temp folder path
+                )
+                
+                if results:
+                    print(f"✅ Training completed successfully: {next_version}")
+                    print(f"📝 Updating Lark Base records to 'Trained'...")
+                    
+                    # Update all trained records to 'Trained'
+                    for item in training_data:
+                        success = lark_client.update_record_field(
+                            item['record_id'],
+                            "Train to Model",
+                            "Trained"
+                        )
+                        if success:
+                            print(f"✅ Updated {item['record_id']} to 'Trained'")
+                        else:
+                            print(f"⚠️ Failed to update {item['record_id']}")
+                    
+                    print(f"✅ All records updated in Lark Base")
+                    print(f"✅ Training data saved in: {temp_training_folder}")
+                else:
+                    print("❌ Training failed - no results returned")
+                    
+            except Exception as e:
+                print(f"❌ Training error: {e}")
+                import traceback
+                traceback.print_exc()
+        
+        background.add_task(train_and_update)
+        
+        return JSONResponse(content={
+            "status": "success",
+            "message": f"Training started with {len(training_data)} images",
+            "training_folder": str(temp_training_folder),
+            "training_data": training_data
+        })
+        
+    except Exception as e:
+        return JSONResponse(status_code=500, content={
+            "status": "error",
+            "message": f"Failed to start training: {str(e)}"
         })

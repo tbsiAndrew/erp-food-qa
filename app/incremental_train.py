@@ -75,7 +75,7 @@ def reorganize_new_data():
     return moved_count, good_count, bad_count
 
 
-def incremental_train(epochs=10, batch=8, patience=5, model_version='bread_qa'):
+def incremental_train(epochs=10, batch=8, patience=5, model_version='bread_qa', dataset_folder=None):
     """
     Fine-tune existing model with new data
     
@@ -88,22 +88,39 @@ def incremental_train(epochs=10, batch=8, patience=5, model_version='bread_qa'):
     print("🔄 Incremental YOLO Training - Fine-tuning existing model")
     print("=" * 60)
     
-    # Reorganize new data
-    print("\n📁 Reorganizing new training data...")
-    moved, good, bad = reorganize_new_data()
-    
-    if moved == 0:
-        print("❌ No new training data found in good/bad folders")
-        print("   Upload images via the web interface first")
-        return None
-    
-    print(f"✅ Moved {moved} images to train/val folders")
-    print(f"   - Good: {good}")
-    print(f"   - Bad: {bad}")
-    
-    # Paths
-    dataset_path = Path('dataset/bread_qa_auto_labeled')
-    data_yaml = dataset_path / 'data.yaml'
+    if dataset_folder:
+        # Use provided temp folder (from backend)
+        dataset_path = Path(dataset_folder)
+        print(f"\n📁 Using custom dataset folder: {dataset_path}")
+        data_yaml = dataset_path / 'data.yaml'
+        train_img_dir = dataset_path / 'images' / 'train'
+        val_img_dir = train_img_dir  # Use train for val if no val split
+        train_label_dir = dataset_path / 'labels' / 'train'
+        val_label_dir = train_label_dir
+        # Count images
+        train_images = list(train_img_dir.glob('*.*'))
+        val_images = list(val_img_dir.glob('*.*'))
+        total_images = len(train_images) + len(val_images)
+        print(f"\n📊 Current dataset size:")
+        print(f"   Train: {len(train_images)}")
+        print(f"   Val: {len(val_images)}")
+        print(f"   Total: {total_images}")
+        if total_images == 0:
+            print("\n❌ No training data available in temp folder")
+            return None
+    else:
+        # Legacy: reorganize from bread_qa_auto_labeled
+        print("\n📁 Reorganizing new training data...")
+        moved, good, bad = reorganize_new_data()
+        if moved == 0:
+            print("❌ No new training data found in good/bad folders")
+            print("   Upload images via the web interface first")
+            return None
+        print(f"✅ Moved {moved} images to train/val folders")
+        print(f"   - Good: {good}")
+        print(f"   - Bad: {bad}")
+        dataset_path = Path('dataset/bread_qa_auto_labeled')
+        data_yaml = dataset_path / 'data.yaml'
     
     # Find the current best model
     # Use previous bread_qa version if exists, else base model
@@ -204,12 +221,14 @@ def main():
     parser.add_argument('--batch', type=int, default=8, help='Batch size')
     parser.add_argument('--patience', type=int, default=5, help='Early stopping patience')
     parser.add_argument('--model_version', type=str, default='bread_qa', help='Model version/folder name for saving trained weights')
+    parser.add_argument('--dataset_folder', type=str, default=None, help='Custom dataset folder (temp folder from backend)')
     args = parser.parse_args()
     results = incremental_train(
         epochs=args.epochs,
         batch=args.batch,
         patience=args.patience,
-        model_version=args.model_version
+        model_version=args.model_version,
+        dataset_folder=args.dataset_folder
     )
     
     if results:

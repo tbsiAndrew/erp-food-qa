@@ -266,5 +266,40 @@ def gen_frames():
 def video_feed():
     return Response(gen_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
+# Proxy routes for Lark Base training integration
+@app.route('/training_items', methods=['GET'])
+def get_training_items():
+    """Proxy to FastAPI endpoint for getting training items from Lark Base"""
+    try:
+        print("🔄 Proxying /training_items to FastAPI...")
+        response = requests.get(f"{FASTAPI_URL}/training_items", timeout=30)
+        print(f"✅ Response: HTTP {response.status_code}")
+        return jsonify(response.json()), response.status_code
+    except Exception as e:
+        print(f"❌ Error proxying /training_items: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/training_image/<record_id>', methods=['GET'])
+def get_training_image(record_id):
+    """Proxy to FastAPI endpoint for getting training image"""
+    try:
+        print(f"🔄 Proxying /training_image/{record_id} to FastAPI...")
+        response = requests.get(f"{FASTAPI_URL}/training_image/{record_id}", timeout=30)
+        print(f"✅ Response: HTTP {response.status_code}")
+        return jsonify(response.json()), response.status_code
+    except Exception as e:
+        print(f"❌ Error proxying /training_image/{record_id}: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/start_training', methods=['POST'])
+def start_training_proxy():
+    """Proxy to FastAPI endpoint for starting training"""
+    try:
+        data = request.get_json()
+        response = requests.post(f"{FASTAPI_URL}/start_training", json=data)
+        return jsonify(response.json()), response.status_code
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True, port=5555, threaded=True)

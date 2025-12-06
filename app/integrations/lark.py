@@ -375,3 +375,205 @@ def send_lark_notification_async(result_data: dict, webhook_url: str = None, ima
     """
     notifier = LarkNotifier(webhook_url, app_id, app_secret, drive_folder_token)
     notifier.send_inspection_result(result_data, image)
+
+
+class LarkBaseClient:
+    """
+    Client for interacting with Lark Base (Bitable) API
+    """
+    def __init__(self, app_id: str = None, app_secret: str = None, base_id: str = None, table_id: str = None):
+        """
+        Initialize Lark Base client
+        
+        Args:
+            app_id: Lark app ID
+            app_secret: Lark app secret
+            base_id: Lark Base (Bitable) ID
+            table_id: Table ID within the Base
+        """
+        self.app_id = app_id or os.getenv('LARK_APP_ID')
+        self.app_secret = app_secret or os.getenv('LARK_APP_SECRET')
+        self.base_id = base_id or os.getenv('LARK_BASE_ID')
+        self.table_id = table_id or os.getenv('LARK_TABLE_ID')
+        self._tenant_access_token = None
+        
+    def _get_tenant_access_token(self) -> str:
+        """Get tenant access token from Lark API"""
+        if self._tenant_access_token:
+            return self._tenant_access_token
+            
+        if not self.app_id or not self.app_secret:
+            print("⚠️ Lark app credentials not configured")
+            return None
+            
+        try:
+            url = "https://open.larksuite.com/open-apis/auth/v3/tenant_access_token/internal"
+            payload = {"app_id": self.app_id, "app_secret": self.app_secret}
+            response = requests.post(url, json=payload)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('code') == 0:
+                    self._tenant_access_token = data.get('tenant_access_token')
+                    return self._tenant_access_token
+                    
+            print(f"⚠️ Failed to get tenant access token: {response.text}")
+            return None
+        except Exception as e:
+            print(f"⚠️ Error getting tenant access token: {e}")
+            return None
+    
+    def get_training_records(self, status: str = "Yes", limit: int = 10) -> list:
+        """
+        Fetch records from Lark Base where 'Train to Model' field matches status
+        
+        Args:
+            status: Filter value for 'Train to Model' field (Yes/No/Trained)
+            limit: Maximum number of records to fetch
+            
+        Returns:
+            List of record dictionaries
+        """
+        token = self._get_tenant_access_token()
+        if not token:
+            return []
+            
+        try:
+            url = f"https://open.larksuite.com/open-apis/bitable/v1/apps/{self.base_id}/tables/{self.table_id}/records/search"
+            headers = {
+                'Authorization': f'Bearer {token}',
+                'Content-Type': 'application/json'
+            }
+            
+            # Build filter for 'Train to Model' field
+            payload = {
+                "filter": {
+                    "conjunction": "and",
+                    "conditions": [
+                        {
+                            "field_name": "Train to Model",
+                            "operator": "is",
+                            "value": [status]
+                        }
+                    ]
+                },
+                "page_size": limit
+            }
+            
+            response = requests.post(url, json=payload, headers=headers)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('code') == 0:
+                    items = data.get('data', {}).get('items', [])
+                    print(f"✅ Retrieved {len(items)} records with 'Train to Model' = '{status}'")
+                    return items
+                    
+            print(f"⚠️ Failed to fetch training records: {response.text}")
+            return []
+            
+        except Exception as e:
+            print(f"⚠️ Error fetching training records: {e}")
+            return []
+    
+    def update_record_field(self, record_id: str, field_name: str, value: any) -> bool:
+        """
+        Update a specific field in a Lark Base record
+        
+        Args:
+            record_id: Record ID to update
+            field_name: Name of the field to update
+            value: New value for the field
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        token = self._get_tenant_access_token()
+        if not token:
+            return False
+            
+        try:
+            url = f"https://open.larksuite.com/open-apis/bitable/v1/apps/{self.base_id}/tables/{self.table_id}/records/{record_id}"
+            headers = {
+                'Authorization': f'Bearer {token}',
+                'Content-Type': 'application/json'
+            }
+            
+            payload = {
+                "fields": {
+                    field_name: value
+                }
+            }
+            
+            response = requests.put(url, json=payload, headers=headers)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('code') == 0:
+                    print(f"✅ Updated record {record_id}: {field_name} = {value}")
+                    return True
+                    
+            print(f"⚠️ Failed to update record: {response.text}")
+            return False
+            
+        except Exception as e:
+            print(f"⚠️ Error updating record: {e}")
+            return False
+    
+    def download_image_from_attachment(self, attachment_field: list) -> np.ndarray:
+        """
+        Download image from Lark Base attachment field
+        
+        Args:
+            attachment_field: Attachment field data from record
+            
+        Returns:
+            OpenCV image (BGR) or None if failed
+        """
+        if not attachment_field or len(attachment_field) == 0:
+            print("⚠️ Attachment field is empty or None")
+            return None
+            
+        token = self._get_tenant_access_token()
+        if not token:
+            return None
+            
+        try:
+            # Get first attachment
+            attachment = attachment_field[0]
+            print(f"📎 Attachment data: {attachment}")
+            
+            # Try different possible field names for file token
+            file_token = (
+                attachment.get('file_token') or 
+                attachment.get('token') or 
+                attachment.get('file_key') or
+                attachment.get('tmp_url')
+            )
+            
+            if not file_token:
+                print(f"⚠️ No file token in attachment. Available keys: {list(attachment.keys())}")
+                return None
+            
+            print(f"🔑 File token: {file_token[:20]}...")
+            
+            # Download file from Lark Drive
+            url = f"https://open.larksuite.com/open-apis/drive/v1/medias/{file_token}/download"
+            headers = {'Authorization': f'Bearer {token}'}
+            
+            response = requests.get(url, headers=headers)
+            
+            if response.status_code == 200:
+                # Convert to OpenCV image
+                nparr = np.frombuffer(response.content, np.uint8)
+                img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                if img is not None:
+                    print(f"✅ Image decoded: {img.shape}")
+                return img
+                
+            print(f"⚠️ Failed to download image: HTTP {response.status_code} - {response.text[:200]}")
+            return None
+            
+        except Exception as e:
+            print(f"⚠️ Error downloading image: {e}")
+            return None
