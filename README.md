@@ -116,15 +116,52 @@ pip install -r requirements.txt
 ### 4️⃣ Configure Environment
 Create a `.env` file in the project root:
 ```env
+
+# API endpoint for bread quality detection
 API_ENDPOINT=https://your-api-endpoint.com/
+
+# Camera identifier (e.g., CAM01)
 CAMERA_ID=CAM01
+
+# Path for storing images locally
 LOCAL_STORAGE_PATH=storage/images
+
+# Path for local SQLite database file
 DATABASE_PATH=storage/qa_database.db
+
+# Lark webhook URL for notifications
 LARK_WEBHOOK_URL=https://open.feishu.cn/open-apis/bot/v2/hook/your-webhook
-LARK_ENABLED=false
-LARK_APP_ID=your_app_id
-LARK_APP_SECRET=your_app_secret
-LARK_DRIVE_FOLDER_TOKEN=your_folder_token
+
+# Enable Lark integration (true/false)
+LARK_ENABLED=false            # true to enable Lark integration
+
+# Lark application ID
+LARK_APP_ID=your_app_id       # Lark application ID
+
+# Lark application secret
+LARK_APP_SECRET=your_app_secret   # Lark application secret
+
+# Lark Drive folder token for file uploads
+LARK_DRIVE_FOLDER_TOKEN=your_folder_token   # Lark Drive folder token
+
+# ============================================================
+# OPTIONAL INTEGRATIONS (Disabled by default)
+# ============================================================
+
+# Lark (Feishu) integration - Set LARK_ENABLED=true to enable
+LARK_ENABLED=
+LARK_WEBHOOK_URL=
+LARK_APP_ID=
+LARK_APP_SECRET=
+LARK_DRIVE_FOLDER_TOKEN=
+
+# Anycross File Upload (optional - for attaching images to Lark Base)
+ANYCROSS_CREATE_FILE_URL=https://your-anycross-url.com   # Anycross file upload URL
+LARK_BASE_ID=your_base_id       # Lark Base ID
+LARK_TABLE_ID=your_table_id     # Lark Table ID
+LARK_FIELD_ID=your_field_id     # Lark Field ID
+ANYCROSS_ACCESS_TOKEN=your_anycross_access_token   # Anycross access token
+LARK_TENANT_ACCESS_TOKEN=your_lark_tenant_access_token   # Lark tenant access token
 ```
 
 ### 5️⃣ Run the Application
