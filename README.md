@@ -129,33 +129,18 @@ LOCAL_STORAGE_PATH=storage/images
 # Path for local SQLite database file
 DATABASE_PATH=storage/qa_database.db
 
-# Lark webhook URL for notifications
-LARK_WEBHOOK_URL=https://open.feishu.cn/open-apis/bot/v2/hook/your-webhook
-
-# Enable Lark integration (true/false)
-LARK_ENABLED=false            # true to enable Lark integration
-
-# Lark application ID
-LARK_APP_ID=your_app_id       # Lark application ID
-
-# Lark application secret
-LARK_APP_SECRET=your_app_secret   # Lark application secret
-
-# Lark Drive folder token for file uploads
-LARK_DRIVE_FOLDER_TOKEN=your_folder_token   # Lark Drive folder token
-
 # ============================================================
 # OPTIONAL INTEGRATIONS (Disabled by default)
 # ============================================================
 
 # Lark (Feishu) integration - Set LARK_ENABLED=true to enable
-LARK_ENABLED=
-LARK_WEBHOOK_URL=
-LARK_APP_ID=
-LARK_APP_SECRET=
-LARK_DRIVE_FOLDER_TOKEN=
+LARK_ENABLED=false            # true to enable Lark integration
+LARK_APP_SECRET=your_app_secret   # Lark application secret
+LARK_APP_ID=your_app_id       # Lark application ID
+LARK_DRIVE_FOLDER_TOKEN=your_folder_token   # Lark Drive folder token
 
 # Anycross File Upload (optional - for attaching images to Lark Base)
+LARK_WEBHOOK_URL=https://open.feishu.cn/open-apis/bot/v2/hook/your-webhook
 ANYCROSS_CREATE_FILE_URL=https://your-anycross-url.com   # Anycross file upload URL
 LARK_BASE_ID=your_base_id       # Lark Base ID
 LARK_TABLE_ID=your_table_id     # Lark Table ID
