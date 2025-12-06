@@ -172,7 +172,7 @@ python web/app.py
 ## 📸 Usage
 
 ### 🥯 Quality Inspection
-1. Open http://127.0.0.1:5000
+1. Open http://127.0.0.1:5555
 2. Select camera
 3. Start live feed
 4. Position bread item
